@@ -1,0 +1,23 @@
+# vf-eval against the local vLLM (qwen3.6-35b) through the pi harness, validation split.
+#   cd /workspace/prime-rl && VLLM_KEY=EMPTY uv run --no-sync vf-eval @ /workspace/jev-browser-rl/configs/eval-vast.toml
+model = "qwen3.6-35b"
+num_rollouts = 1
+max_concurrent = 2
+output_dir = "/workspace/vf-runs"
+push = false
+
+[client]
+base_url = "http://127.0.0.1:18000/v1"
+api_key_var = "VLLM_KEY"
+
+[sampling]
+max_tokens = 16384
+
+[env]
+taskset.id = "jev-browser"
+taskset.split = "val"
+taskset.tools.url = "http://127.0.0.1:18100/mcp"   # scripts/run/serve_tools.py must be running
+taskset.task.minutes = 15
+agent.harness.id = "jev-pi"
+agent.runtime.type = "subprocess"
+agent.timeout.rollout = 1200

@@ -1,0 +1,130 @@
+# Run 2 ("validate fast"): Qwen3.5-9B on 4x A100-80GB. 2 vLLM replicas (data parallel) + 2 trainer GPUs with 2-way
+# Ulysses context parallelism so the FULL 262k window trains without offload (a 262k micro-batch needs ~80 GB of
+# activations on one card; split across the CP pair it is ~40 GB + 9 GB of sharded params). Rewards are group-relative (4 rollouts per task,
+# advantage = judge score minus the group mean) fed into the KLPO binary-KL loss, so the signal is "better than this
+# model's other attempts at the same task" instead of the compressed absolute 0.05-0.2 band of run 1.
+# Launch: CLEAN=1 RUN_NAME=jev9b-v2 MODEL_CFG=rl-v2-9b.toml sh /workspace/jev-browser-rl/scripts/run/relaunch_all.sh
+
+max_steps = 40
+seq_len = 262144
+output_dir = "/workspace/prl-runs"
+
+[run]
+name = "jev9b-v2"
+
+[model]
+name = "/workspace/models/Qwen3.5-9B"
+
+[deployment]
+type = "single_node"
+num_infer_gpus = 2
+num_train_gpus = 2
+
+[weight_broadcast]
+type = "filesystem"
+
+[ckpt]
+interval = 1
+keep_last = 2
+
+[monitors.file]
+
+# --- Trainer ---
+[trainer.model]
+impl = "custom"
+optimization_dtype = "bfloat16"
+fused_lm_head_token_chunk_size = 2048
+cp = 2
+cp_style = "ulysses"
+
+[trainer.model.ac]
+
+[trainer.model.ac_offloading]
+max_inflight_activations = 1
+
+[trainer.model.lora]
+rank = 8
+alpha = 32
+dropout = 0.0
+
+[trainer.optim]
+lr = 1.5e-5
+weight_decay = 0.0
+
+[trainer.scheduler]
+type = "linear"
+warmup_steps = 3
+decay_steps = 0
+
+[trainer.loss]
+type = "custom"
+import_path = "klpo_prime.klpo_binary_loss"
+[trainer.loss.kwargs]
+beta = 0.1
+
+# --- Orchestrator ---
+[orchestrator]
+batch_size = 32                  # 8 tasks x 4 rollouts per step
+max_off_policy_steps = 2
+
+[orchestrator.model.lora]
+
+[orchestrator.train]
+group_size = 4
+
+[orchestrator.train.algo]
+type = "grpo"                    # group-relative centering; KLPO loss consumes the centered advantage as R
+
+[orchestrator.train.sampling]
+max_completion_tokens = 16384
+
+[orchestrator.concurrency]
+initial_inflight = 32
+max_inflight = 32
+
+[orchestrator.renderer]
+name = "qwen3.5"
+
+[[orchestrator.train.source]]
+name = "jev-browser-train"
+env.taskset.id = "jev-browser"
+env.taskset.split = "train"
+env.taskset.task.minutes = 15
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "262144" }
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+env.agent.timeout.rollout = 1200
+
+[orchestrator.eval]
+interval = 5
+
+[[orchestrator.eval.source]]
+name = "jev-browser-val"
+env.taskset.id = "jev-browser"
+env.taskset.split = "val"
+env.taskset.task.minutes = 15
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "262144" }
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+env.agent.timeout.rollout = 1200
+
+# --- Inference ---
+# Port 8000 belongs to the Vast portal's caddy.
+[inference.server]
+port = 8100
+
+[orchestrator.model.client]
+base_url = "http://localhost:8100/v1"
+
+[inference.vllm]
+data_parallel_size = 2
+max_model_len = 262144
+gpu_memory_utilization = 0.90
+max_num_seqs = 16
+enable_lora = true
+max_lora_rank = 8
+enable_auto_tool_choice = true
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"

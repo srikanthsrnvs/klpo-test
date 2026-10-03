@@ -1,0 +1,25 @@
+# Base-model (no adapter) validation through the training run's own vLLM (it serves the base weights under the model
+# path), so a re-baseline under a changed browser environment is comparable with the run's step-N evals.
+#   cd /workspace/prime-rl && VLLM_KEY=EMPTY uv run --no-sync vf-eval @ .../eval-base-live.toml --run.dir base-live-<tag>
+model = "/workspace/models/Qwen3.5-9B"
+num_rollouts = 1
+max_concurrent = 5
+output_dir = "/workspace/vf-runs"
+push = false
+
+[client]
+base_url = "http://127.0.0.1:8100/v1"
+api_key_var = "VLLM_KEY"
+
+[sampling]
+max_tokens = 16384
+
+[env]
+taskset.id = "jev-browser"
+taskset.split = "val"
+taskset.task.minutes = 25
+agent.harness.id = "jev-pi"
+agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
+agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+agent.runtime.type = "subprocess"
+agent.timeout.rollout = 1800

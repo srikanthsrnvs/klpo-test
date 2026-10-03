@@ -1,0 +1,28 @@
+# Integration smoke test of the full rollout path (jev-pi harness -> interception -> tool server -> judge) with
+# DeepSeek as a stand-in policy, so it needs no GPU. 4 validation tasks, 4 concurrent, 6-minute budget.
+#   cd /workspace/prime-rl && DEEPSEEK_API_KEY=... uv run --no-sync vf-eval @ /workspace/jev-browser-rl/configs/eval-smoke.toml --run.dir smoke-deepseek --clean
+model = "deepseek-v4-pro"
+num_rollouts = 1
+max_concurrent = 4
+output_dir = "/workspace/vf-runs"
+push = false
+
+[client]
+base_url = "https://api.deepseek.com/v1"
+api_key_var = "DEEPSEEK_API_KEY"
+
+[sampling]
+max_tokens = 8192
+
+[select]
+limit = 4
+
+[env]
+taskset.id = "jev-browser"
+taskset.split = "val"
+taskset.task.minutes = 6
+agent.harness.id = "jev-pi"
+agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
+agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+agent.runtime.type = "subprocess"
+agent.timeout.rollout = 540

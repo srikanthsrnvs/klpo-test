@@ -1,0 +1,131 @@
+# prime-rl: KLPO (binary KL) + LoRA on Qwen3.5-9B (dense) — the "validate the method" configuration.
+# 2xA100-80GB: GPU0 = vLLM bf16 (18 GB weights, ~50 GB KV -> 16 concurrent 131k rollouts), GPU1 = trainer bf16 + LoRA
+# with NO offload (18 GB weights + activations). Same LoRA/LR/batch reasoning as rl-vast.toml (Thinking Machines).
+# Launch: MODEL_CFG=rl-vast-9b.toml sh /workspace/jev-browser-rl/scripts/run/start_rl.sh
+
+max_steps = 60
+seq_len = 131072                 # 262k OOMed in AC recompute on one A100 (micro-batches are packed to seq_len)
+output_dir = "/workspace/prl-runs"
+
+[run]
+name = "jev9b-klpo-r8"
+
+[deployment]
+type = "single_node"
+num_infer_gpus = 1
+num_train_gpus = 1
+
+[weight_broadcast]
+type = "filesystem"
+
+[ckpt]
+interval = 1                     # LoRA checkpoints are small; any death without a checkpoint loses the whole run
+keep_last = 2
+
+[monitors.file]
+
+# --- Trainer ---
+
+[model]
+name = "/workspace/models/Qwen3.5-9B"
+
+[trainer.model]
+impl = "custom"
+optimization_dtype = "bfloat16"   # default fp32 keeps all 9B params in fp32 (36 GB) although only the adapter trains
+fused_lm_head_token_chunk_size = 2048
+
+[trainer.model.ac_offloading]
+max_inflight_activations = 1
+
+[trainer.model.ac]
+
+[trainer.model.lora]
+rank = 8                         # RL saturates at rank 1 in the TM experiments; r16 over 256 experts x 40 layers was 1.27B params
+alpha = 32
+dropout = 0.0
+
+[trainer.optim]
+lr = 1.5e-5
+weight_decay = 0.0
+
+[trainer.scheduler]
+type = "linear"
+warmup_steps = 5
+decay_steps = 0
+
+[trainer.loss]
+type = "custom"
+import_path = "klpo_prime.klpo_binary_loss"
+[trainer.loss.kwargs]
+beta = 0.1
+
+# --- Orchestrator ---
+
+[orchestrator]
+batch_size = 16
+max_off_policy_steps = 4
+
+[orchestrator.model.lora]
+
+[orchestrator.train]
+group_size = 1
+
+[orchestrator.train.algo]
+type = "raw"                     # advantage = judge score (KLPO's R), no baseline
+
+[orchestrator.train.sampling]
+max_completion_tokens = 16384
+
+[orchestrator.concurrency]
+initial_inflight = 16
+max_inflight = 16   # step time is environment latency, not GPU: ~13k generated tokens per 46-turn episode
+
+[orchestrator.renderer]
+name = "qwen3.5"
+
+[[orchestrator.train.source]]
+name = "jev-browser-train"
+env.taskset.id = "jev-browser"
+env.taskset.split = "train"
+env.taskset.task.minutes = 25
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
+# pi ships bash/read/write/edit/grep/find/ls; the policy used bash to kill Chrome, delete profiles and scrape with
+# python. Browser tools only.
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+env.agent.timeout.rollout = 1800
+
+[orchestrator.eval]
+interval = 10
+
+[[orchestrator.eval.source]]
+name = "jev-browser-val"
+env.taskset.id = "jev-browser"
+env.taskset.split = "val"
+env.taskset.task.minutes = 25
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
+# pi ships bash/read/write/edit/grep/find/ls; the policy used bash to kill Chrome, delete profiles and scrape with
+# python. Browser tools only.
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+env.agent.timeout.rollout = 1800
+
+# --- Inference ---
+# Port 8000 belongs to the Vast portal's caddy on this box.
+[inference.server]
+port = 8100
+
+[orchestrator.model.client]
+base_url = "http://localhost:8100/v1"
+
+[inference.vllm]
+max_model_len = 131072
+gpu_memory_utilization = 0.90
+max_num_seqs = 16
+enable_lora = true
+max_lora_rank = 8
+enable_auto_tool_choice = true
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"
