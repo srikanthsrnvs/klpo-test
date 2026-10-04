@@ -1,6 +1,6 @@
 # Verifier prompt v3 (judge has the final say)
 
-Model: `deepseek-v4-pro`, thinking enabled at the highest level the API allows, temperature 0.
+Model: `deepseek-v4-pro`, thinking enabled at low reasoning effort (configurable; high wrote ~8k reasoning tokens per verdict), temperature 0.
 One call per trajectory. The verifier reads the whole trace and returns strict JSON: structured findings AND a final
 score in [0, 1] that it decides itself. The score is the reward. The findings and the rubric are scaffolding for its
 reasoning, not a formula it must follow; a formula-based score is also computed in code and logged for comparison.

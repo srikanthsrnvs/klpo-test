@@ -291,7 +291,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("path")
     ap.add_argument("--model", default="deepseek-v4-pro")
-    ap.add_argument("--effort", default="high")
+    ap.add_argument("--effort", default="low")
     ap.add_argument("--dry", action="store_true", help="assemble prompts and report sizes without calling the API")
     ap.add_argument("--force", action="store_true", help="re-verify even if verifier.json exists")
     a = ap.parse_args()

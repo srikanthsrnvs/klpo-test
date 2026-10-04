@@ -93,6 +93,7 @@ name = "jev-browser-train"
 env.taskset.id = "jev-browser"
 env.taskset.split = "train"
 env.taskset.task.minutes = 12     # the ONE budget: told to the policy, agent timeout = this + 1 min grace
+env.taskset.task.judge_effort = "low"   # ~8k reasoning tokens per verdict at "high" made every judge call 50-85 s
 env.taskset.task.judge_group = 4  # judged four per call (two calls per group of 8; eight would over-clip results)
 env.agent.harness.id = "jev-pi"
 env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
@@ -115,6 +116,7 @@ env.taskset.id = "jev-browser"
 env.taskset.split = "val"
 env.taskset.val_repeats = 3        # 10 held-out tasks x 3 rollouts per eval
 env.taskset.task.minutes = 15
+env.taskset.task.judge_effort = "low"
 env.agent.harness.id = "jev-pi"
 env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
 env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]

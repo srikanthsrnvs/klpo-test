@@ -155,7 +155,8 @@ class BenchData(vf.TaskData):
 
 class BenchTaskConfig(vf.TaskConfig):
     judge_model: str = "deepseek-v4-pro"
-    judge_effort: str = "high"
+    judge_effort: str = "low"
+    """DeepSeek reasoning effort for the judge. "high" wrote ~8k reasoning tokens per verdict (50-85 s per call)."""
     judge_retries: int = 3
     judge_timeout: int = 600
     """Seconds allowed per judge API call."""
