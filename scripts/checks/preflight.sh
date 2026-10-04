@@ -14,7 +14,8 @@ echo "### judge key"; cd /workspace/jev-browser-rl && $PY -c "
 import importlib.util; spec=importlib.util.spec_from_file_location('v','reward/verifier.py'); v=importlib.util.module_from_spec(spec); spec.loader.exec_module(v); v.load_env()
 f,m=v.call_deepseek('Return only JSON {\"score\": 0.5}','go',model='deepseek-v4-pro',effort='high',timeout=180); print('judge ok', f)" || fail=1
 echo "### smoke eval (DeepSeek policy, 4 episodes)"; sh /workspace/jev-browser-rl/scripts/checks/run_smoke.sh >/dev/null
-for i in $(seq 1 60); do grep -q "Evaluated\|error 1.00\|success" /workspace/vf-runs/smoke-deepseek.log 2>/dev/null && pgrep -f "bin/vf-ev[a]l" >/dev/null || break; sleep 15; done
+# Wait (up to 25 min) for the detached vf-eval to exit; the old condition broke out of the loop immediately.
+sleep 20; for i in $(seq 1 100); do pgrep -f "bin/vf-ev[a]l" >/dev/null || break; sleep 15; done
 sleep 5; sh /workspace/jev-browser-rl/scripts/checks/smoke_report.sh | tail -8
 grep -q "not_found 0" /workspace/vf-runs/smoke-deepseek/traces.jsonl 2>/dev/null; sh /workspace/jev-browser-rl/scripts/checks/smoke_report.sh | grep -q "tools_offered 8" || fail=1
 [ $fail = 0 ] && echo "PREFLIGHT: PASS" || echo "PREFLIGHT: FAIL"
