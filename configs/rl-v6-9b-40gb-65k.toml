@@ -1,0 +1,140 @@
+# Run 6 (fallback for 40 GB cards without context parallelism): trainer cp=1 with activation offloading at 65k; the policy's
+# context window and vLLM match it, so pi compacts before a branch outgrows the trainer. 131k needs 80 GB cards at cp=1.
+# GPUs: 4 vLLM replicas + 4 trainer GPUs in one 4-way Ulysses CP group at 131k. (6/2 with cp = 2 OOMed on the first
+# optimizer step: 38 GB in use on a 40 GB card.) Rollouts are environment-bound, so inflight is what sets throughput: max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
+# step is judged and trained (max_off_policy_steps = 3 lets them be used). Every rollout costs ~150 pids (Chrome,
+# daemon, tool server, pi) and the box's cgroup allows ~31k including vLLM/trainer threads, so inflight stays <= 64. Signal: groups of 8 (more within-group
+# variance than 4), the difficulty-pool curriculum samples tasks the policy sometimes solves more often than tasks it
+# always fails or always solves, and zero-variance groups still get dropped (logged as "no trainable survivors").
+# Browser envs come from the warm pool (scripts/run/start_pool.sh, started by relaunch_all.sh).
+# Launch: CLEAN=1 RUN_NAME=jev9b-v5 MODEL_CFG=rl-v5-9b-40gb.toml JEV_POOL_SIZE=32 sh /workspace/jev-browser-rl/scripts/run/relaunch_all.sh
+
+max_steps = 60
+seq_len = 65536
+output_dir = "/workspace/prl-runs"
+
+[run]
+name = "jev9b-v6"
+
+[model]
+name = "/workspace/models/Qwen3.5-9B"       # (optional: an SFT export from scripts/run/sft_warmstart.sh)
+
+[deployment]
+type = "single_node"
+num_infer_gpus = 4
+num_train_gpus = 4
+
+[weight_broadcast]
+type = "filesystem"
+
+[ckpt]
+interval = 1
+keep_last = 2
+
+[monitors.file]
+
+# --- Trainer ---
+[trainer.model]
+impl = "custom"
+optimization_dtype = "bfloat16"
+fused_lm_head_token_chunk_size = 2048
+cp = 1                           # no context parallelism: ulysses crashes on Qwen3.5 here
+# activation offloading ON (prime-rl default): 65k peaks at 29.8 GiB on a 40 GB card with it, OOMs without it
+
+[trainer.model.ac]
+
+[trainer.model.lora]
+rank = 8
+alpha = 32
+dropout = 0.0
+
+[trainer.optim]
+lr = 1.5e-5
+weight_decay = 0.0
+
+[trainer.scheduler]
+type = "linear"
+warmup_steps = 3
+decay_steps = 0
+
+[trainer.loss]
+type = "custom"
+import_path = "klpo_prime.klpo_binary_loss"
+[trainer.loss.kwargs]
+beta = 2.0                       # regression target per token = advantage / beta; keep it well under 1 nat
+omega_max = 10.0                 # binary-KL correction weight is clipped to [0.1, 10]
+
+# --- Orchestrator ---
+[orchestrator]
+batch_size = 64                  # 8 tasks x 8 rollouts per step
+max_off_policy_steps = 3
+
+[orchestrator.model.lora]
+
+[orchestrator.train]
+group_size = 8
+
+[orchestrator.train.algo]
+type = "grpo"                    # group-relative centering; KLPO loss consumes the centered advantage as R
+
+[orchestrator.train.sampling]
+max_completion_tokens = 8192     # per-turn cap: tool-call turns rarely need more, and long thinking is slow at ~100 tok/s
+
+[orchestrator.concurrency]
+initial_inflight = 48
+max_inflight = 64                # 96 + a 112-slot pool hit the box's 31k pid cgroup limit (threads count); 64 keeps ~25% headroom
+
+[orchestrator.renderer]
+name = "qwen3.5"
+enable_thinking = true
+
+[[orchestrator.train.source]]
+name = "jev-browser-train"
+env.taskset.id = "jev-browser"
+env.taskset.split = "train"
+env.taskset.task.minutes = 12     # the ONE budget: told to the policy, agent timeout = this + 1 min grace
+env.taskset.task.judge_group = 4  # judged four per call (two calls per group of 8; eight would over-clip results)
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "65536", JEV_PI_RESERVE_TOKENS = "12288", JEV_PI_KEEP_RECENT_TOKENS = "24000", JEV_PI_MAX_TOKENS = "8192" }
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+
+[orchestrator.train.source.curriculum.sampler]
+type = "difficulty_pool"         # weight tasks by their observed reward: mostly the ones the policy sometimes solves
+[orchestrator.train.source.curriculum.sampler.pools]
+hard = { threshold = 0.25, weight = 0.3 }
+normal = { threshold = 0.75, weight = 1.0 }
+easy = { threshold = 1.0, weight = 0.3 }
+
+[orchestrator.eval]
+interval = 5
+
+[[orchestrator.eval.source]]
+name = "jev-browser-val"
+env.taskset.id = "jev-browser"
+env.taskset.split = "val"
+env.taskset.val_repeats = 3        # 10 held-out tasks x 3 rollouts per eval
+env.taskset.task.minutes = 15
+env.agent.harness.id = "jev-pi"
+env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "65536", JEV_PI_RESERVE_TOKENS = "12288", JEV_PI_KEEP_RECENT_TOKENS = "24000", JEV_PI_MAX_TOKENS = "8192" }
+env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+env.agent.runtime.type = "subprocess"
+
+# --- Inference ---
+# Port 8000 belongs to the Vast portal's caddy; 8080 to its Jupyter (the dashboard runs on DASH_PORT=8081).
+[inference.server]
+port = 8100
+
+[orchestrator.model.client]
+base_url = "http://localhost:8100/v1"
+
+[inference.vllm]
+data_parallel_size = 4
+max_model_len = 65536
+gpu_memory_utilization = 0.90
+max_num_seqs = 16                # 4 replicas x 16 = 64 concurrent sequences = max_inflight; KV cache had 3x headroom at 8
+enable_lora = true
+max_lora_rank = 8
+enable_auto_tool_choice = true
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"

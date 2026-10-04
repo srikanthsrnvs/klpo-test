@@ -1,5 +1,13 @@
-"""Apply the raw-reward algorithm to a prime-rl checkout (idempotent). Usage: python patch_prime_rl.py /workspace/prime-rl"""
+"""Apply this repo's prime-rl patches to a checkout (idempotent). Usage: python patch_prime_rl.py /workspace/prime-rl
+
+1. the `raw` advantage algorithm (trainer/prime-rl.patch, applied by string edits below)
+2. the Qwen3.5 Ulysses context-parallel fix (trainer/prime-rl-ulysses-cp.patch, applied with `git apply`): FLA's
+   memoized CP context was built inside activation-checkpointed layers, so the backward recompute skipped its
+   CUDA->CPU copies and selective checkpointing served the post-attention norm the saved int32 cu_seqlens
+   ("mean(): could not infer output dtype ... Got: Int"). The context is now built once per forward, outside the layers.
+"""
 import pathlib
+import subprocess
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -67,3 +75,10 @@ if "RawRewardAlgorithm" not in s:
     s = s.replace('    "debug": DebugAlgorithm,\n}', '    "debug": DebugAlgorithm,\n    "raw": RawRewardAlgorithm,\n}', 1)
     init.write_text(s)
 print("patched", root)
+
+ulysses = pathlib.Path(__file__).with_name("prime-rl-ulysses-cp.patch")
+if subprocess.run(["git", "apply", "--reverse", "--check", str(ulysses)], cwd=root, capture_output=True).returncode == 0:
+    print("ulysses cp patch already applied")
+else:
+    subprocess.run(["git", "apply", str(ulysses)], cwd=root, check=True)
+    print("ulysses cp patch applied")

@@ -90,13 +90,13 @@ prime-rl at `/workspace/prime-rl`, runs under `/workspace/prl-runs`, and the mod
 
 ## Known issues
 
-- **Run 2 trainer crash.** The trainer failed on its first optimizer step with
-  `RuntimeError: mean(): could not infer output dtype ... Got: Int` in `Qwen3_5RMSNorm.forward`
-  (`prime_rl/trainer/models/qwen3_5/norm.py:20`), inside activation-checkpoint recompute: the norm received an
-  int32 tensor (`[0, 99650, 196671, 261944]`, which looks like packed-sequence offsets) instead of hidden states.
-  Config at the time: `cp = 2` (Ulysses), activation checkpointing with offloading, `seq_len = 262144`.
-  Root cause not yet determined. Before the crash: step-0 validation reward 0.141 (10 tasks), first training batch
-  reward 0.108 (32 rollouts).
+- **Trainer crash under Ulysses context parallelism (fixed; patch in `trainer/prime-rl-ulysses-cp.patch`).**
+  Runs 2, 3 and 5 died on the first optimizer step with `RuntimeError: mean(): could not infer output dtype ... Got: Int`
+  in `Qwen3_5RMSNorm.forward` during activation-checkpoint recompute, with any `cp >= 2` and with or without activation
+  offloading. Cause: `Qwen3_5GatedDeltaNet` built FLA's context-parallel context inside the checkpointed layer; FLA
+  memoizes it (`tensor_cache`), so the recompute skipped its CUDA->CPU `cu_seqlens` copy (which prime-rl's checkpoint
+  policy saves), the per-op replay counter shifted, and the post-attention norm's `.float()` was served the saved int32
+  `cu_seqlens`. The patch builds the context once per model forward, outside the layers, and passes it in.
 - **The judge reads a different skill document than the policy.** `reward/verifier.py` appends the raw
   `policy/SKILL.md` to the judge prompt, while the policy sees the `skill_body()` version (no Setup section, no
   `browser_screenshot` lines, tool-prefix sentence replaced). The judge prompt also lists `browser_type(..., submit)`
