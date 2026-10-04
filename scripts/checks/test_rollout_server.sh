@@ -8,7 +8,7 @@ pids=""; ports=""
 for i in $(seq 1 $N); do
   mkdir -p /root/.cache/verifiers/runtimes/subprocess/unit-test-$i-with-a-deliberately-long-directory-name-like-verifiers-uses
   PF=/tmp/vf-port-test-$i; rm -f $PF
-  VF_CONFIG='{"colocated": true}' MCP_PORT_FILE=$PF MCP_HOST=127.0.0.1 TMPDIR=/root/.cache/verifiers/runtimes/subprocess/unit-test-$i-with-a-deliberately-long-directory-name-like-verifiers-uses setsid $PY -m jev_browser.toolset > /tmp/rollout-server-$i.log 2>&1 < /dev/null &
+  JEV_POOL_DIR=/nonexistent VF_CONFIG='{"colocated": true}' MCP_PORT_FILE=$PF MCP_HOST=127.0.0.1 TMPDIR=/root/.cache/verifiers/runtimes/subprocess/unit-test-$i-with-a-deliberately-long-directory-name-like-verifiers-uses setsid $PY -m jev_browser.toolset > /tmp/rollout-server-$i.log 2>&1 < /dev/null &
   pids="$pids $!"
 done
 for i in $(seq 1 $N); do

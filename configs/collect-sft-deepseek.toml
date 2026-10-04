@@ -1,0 +1,27 @@
+# SFT warm-start data: DeepSeek V4 Pro drives the harness on the TRAIN split through the same rollout path
+# (jev-pi, per-rollout tool servers, judge). Trajectories the judge scores >= 0.5 become the SFT set
+# (scripts/analysis/traces_to_sft.py). Judge records go to JEV_JUDGE_DIR (set at launch) so they stay apart
+# from the RL run's.
+#   cd /workspace/prime-rl && DEEPSEEK_API_KEY=... JEV_JUDGE_DIR=/workspace/vf-runs/sft-deepseek-judge \
+#     uv run --no-sync vf-eval @ /workspace/jev-browser-rl/configs/collect-sft-deepseek.toml --run.dir sft-deepseek
+model = "deepseek-v4-pro"
+num_rollouts = 1
+max_concurrent = 24
+output_dir = "/workspace/vf-runs"
+push = false
+
+[client]
+base_url = "https://api.deepseek.com/v1"
+api_key_var = "DEEPSEEK_API_KEY"
+
+[sampling]
+max_tokens = 8192
+
+[env]
+taskset.id = "jev-browser"
+taskset.split = "train"
+taskset.task.minutes = 12
+agent.harness.id = "jev-pi"
+agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
+agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
+agent.runtime.type = "subprocess"

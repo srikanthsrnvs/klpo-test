@@ -120,7 +120,8 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
         # state with another rollout.
         port = os.environ.setdefault("JEV_CDP_PORT", str(_free_port()))
         os.environ.setdefault("BU_NAME", f"jev-{port}")
-        os.environ.pop("BU_CDP_URL", None)
+        if not os.environ.get("JEV_POOL_SLOT"):  # a warm-pool slot already carries BU_CDP_URL
+            os.environ.pop("BU_CDP_URL", None)
         os.environ.pop("BU_CDP_WS", None)
         if "JEV_CHROME_BINARY" not in os.environ and os.path.exists("/usr/local/bin/chrome-headless"):
             os.environ["JEV_CHROME_BINARY"] = "/usr/local/bin/chrome-headless"
@@ -336,9 +337,15 @@ def _apply_tool_surface() -> None:
 
 
 def _shutdown_browser() -> None:
-    """Kill the Chrome and the browser-harness daemon this process started (both run detached)."""
+    """Kill the Chrome and the browser-harness daemon this process started (both run detached), or hand a warm-pool
+    slot back so the keeper replaces it."""
     import signal
 
+    if slot := os.environ.get("JEV_POOL_SLOT"):
+        from jev_browser import warm_pool
+
+        warm_pool.release(int(slot))
+        return
     try:
         from jev_ultrafast import mcp_server
     except Exception:
@@ -379,6 +386,9 @@ if __name__ == "__main__":
     import signal
     import traceback
 
+    from jev_browser import warm_pool
+
+    slot = warm_pool.claim()  # adopt a pre-warmed Chrome + daemon when the keeper is running; else launch our own
     _apply_tool_surface()
     atexit.register(_shutdown_browser)
     for sig in (signal.SIGTERM, signal.SIGINT):

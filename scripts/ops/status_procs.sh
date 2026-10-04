@@ -1,2 +1,2 @@
 #!/bin/sh
-echo "procs: chrome=$(pgrep -fc '[g]oogle-chrome') daemons=$(pgrep -fc 'browser_harness[.]daemon') tool_servers=$(pgrep -fc 'jev_browser[.]toolset') shared_server=$(pgrep -fc 'serve_tools[.]py') pi=$(pgrep -fc '[p]i-acp') rl=$(pgrep -fc '[r]l @ /workspace') pids=$(cat /sys/fs/cgroup/pids.current)"
+echo "procs: chrome=$(pgrep -fc '[g]oogle-chrome') daemons=$(pgrep -fc 'browser_harness[.]daemon') tool_servers=$(pgrep -fc 'jev_browser[.]toolset') shared_server=$(pgrep -fc 'serve_tools[.]py') pi=$(pgrep -fc '[p]i-acp') rl=$(pgrep -fc '[r]l @ /workspace') pids=$(cat /sys/fs/cgroup/pids.current) pool_ready=$(ls /tmp/jev-pool/*.ready 2>/dev/null | wc -l) pool_claimed=$(ls /tmp/jev-pool/*.claimed-* 2>/dev/null | wc -l)"
