@@ -250,7 +250,7 @@ class Keeper:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--size", type=int, default=int(os.environ.get("JEV_POOL_SIZE", "104")))
+    ap.add_argument("--size", type=int, default=int(os.environ.get("JEV_POOL_SIZE", "32")))
     ap.add_argument("--parallel", type=int, default=8)
     a = ap.parse_args()
     Keeper(a.size, a.parallel).run()

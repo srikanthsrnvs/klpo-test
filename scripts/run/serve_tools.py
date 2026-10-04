@@ -28,6 +28,7 @@ if __name__ == "__main__":
             delattr(JevBrowserToolset, name)
         except AttributeError:
             pass
+    os.environ.setdefault("JEV_TOOL_WORKERS", "48")  # one shared server serves every rollout
     os.environ.setdefault("MCP_HOST", "127.0.0.1")
     os.environ.setdefault("MCP_PORT", "18100")
     toolset = JevBrowserToolset(vf.SharedToolsetConfig())

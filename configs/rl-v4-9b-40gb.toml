@@ -2,11 +2,12 @@
 # Throughput: 6 vLLM replicas (rollouts are environment-bound, so more replicas = more concurrent rollouts), 2 trainer
 # GPUs in one 2-way Ulysses CP group at 131k (fits a 40 GB card with checkpointing, no offloading; fallback 4/4 with
 # cp = 4 as in rl-v3). max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
-# step is judged and trained (max_off_policy_steps = 3 lets them be used). Signal: groups of 8 (more within-group
+# step is judged and trained (max_off_policy_steps = 3 lets them be used). Every rollout costs ~150 pids (Chrome,
+# daemon, tool server, pi) and the box's cgroup allows ~31k including vLLM/trainer threads, so inflight stays <= 64. Signal: groups of 8 (more within-group
 # variance than 4), the difficulty-pool curriculum samples tasks the policy sometimes solves more often than tasks it
 # always fails or always solves, and zero-variance groups still get dropped (logged as "no trainable survivors").
 # Browser envs come from the warm pool (scripts/run/start_pool.sh, started by relaunch_all.sh).
-# Launch: CLEAN=1 RUN_NAME=jev9b-v4 MODEL_CFG=rl-v4-9b-40gb.toml JEV_POOL_SIZE=112 sh /workspace/jev-browser-rl/scripts/run/relaunch_all.sh
+# Launch: CLEAN=1 RUN_NAME=jev9b-v4 MODEL_CFG=rl-v4-9b-40gb.toml JEV_POOL_SIZE=32 sh /workspace/jev-browser-rl/scripts/run/relaunch_all.sh
 
 max_steps = 60
 seq_len = 131072
@@ -81,8 +82,8 @@ type = "grpo"                    # group-relative centering; KLPO loss consumes 
 max_completion_tokens = 8192     # per-turn cap: tool-call turns rarely need more, and long thinking is slow at ~100 tok/s
 
 [orchestrator.concurrency]
-initial_inflight = 64
-max_inflight = 96
+initial_inflight = 48
+max_inflight = 64                # 96 + a 112-slot pool hit the box's 31k pid cgroup limit (threads count); 64 keeps ~25% headroom
 
 [orchestrator.renderer]
 name = "qwen3.5"

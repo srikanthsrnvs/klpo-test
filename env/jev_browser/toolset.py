@@ -136,8 +136,10 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
         _browser.ensure_daemon()
         self._t0 = time.monotonic()  # the rollout's clock: this server lives exactly as long as its rollout
         self._last_used: dict[str, float] = {}
+        # A per-rollout server serves one agent, so a handful of workers is plenty; the box's pid cgroup counts
+        # threads, and 48 threads x ~100 servers was a third of its budget. Shared servers raise JEV_TOOL_WORKERS.
         self._pool = ThreadPoolExecutor(
-            max_workers=int(os.environ.get("JEV_TOOL_WORKERS", "48")), thread_name_prefix="jev"
+            max_workers=int(os.environ.get("JEV_TOOL_WORKERS", "6")), thread_name_prefix="jev"
         )
         # Policies rarely call browser_close, and a shared server has no per-rollout teardown hook, so leaked
         # tabs pile up in Chrome (hundreds of renderer processes; the box's pid cgroup limit then kills things).

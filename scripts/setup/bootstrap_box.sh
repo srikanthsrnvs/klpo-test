@@ -12,7 +12,7 @@ cat > /usr/local/bin/chrome-headless <<'W'
 # Present as a normal desktop Chrome (stock UA, no automation marker) so sites serve the real page instead of
 # a challenge page. Browser hygiene at the infrastructure layer — never surfaced in the model's instructions.
 exec /usr/bin/google-chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --window-size=1280,900 \
-  --renderer-process-limit=8 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process \
+  --renderer-process-limit=4 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process \
   --disable-extensions --disable-background-networking --no-first-run \
   --disable-blink-features=AutomationControlled --lang=en-US --accept-lang=en-US,en \
   --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36" "$@"
