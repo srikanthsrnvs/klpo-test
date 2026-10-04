@@ -265,7 +265,9 @@ class JevBrowserToolset(_JevBase):
         if isinstance(out, str) and out.startswith("session: "):
             self._session = out.split()[1]
             self._touch(self._session)
-            out = out.split("\n", 1)[1] if "\n" in out else ""  # the policy never needs the session id
+            # The policy never sees the session id: drop the id line and the harness's session-addressed hint.
+            lines = [l for l in out.split("\n")[1:] if not l.startswith("Next: browser_run(")]
+            out = "\n".join(lines) + '\nNext: browser_run("<goal in plain English>") navigates for you.'
         return self._stamp(out)
 
     @vf.tool
@@ -322,7 +324,8 @@ class JevBrowserToolset(_JevBase):
             return self._stamp("no page is open")
         sid, self._session = self._session, None
         self._last_used.pop(sid, None)
-        return self._stamp(await self._guard(self._m.browser_close, sid))
+        out = await self._guard(self._m.browser_close, sid)
+        return self._stamp("closed your tab" if isinstance(out, str) and out.startswith("closed") else out)
 
 
 class JevBrowserSharedToolset(_JevBase):
