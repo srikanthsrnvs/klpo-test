@@ -77,6 +77,12 @@ class JevPiHarness(PiHarness):
         mcp_js = mcp_js.replace(
             '\\"mcpServers\\":', '\\"settings\\": {\\"disableProxyTool\\": true}, \\"mcpServers\\":', 1
         )
+        # A browser_run can legitimately take minutes (25 Jev steps with page settles); the adapter's default request
+        # timeout cut 3% of them off with "Request timed out" while Jev kept driving the page underneath the policy.
+        mcp_js = mcp_js.replace(
+            '\\"directTools\\": true',
+            '\\"directTools\\": true, \\"requestTimeoutMs\\": ' + str(self._setting("JEV_PI_TOOL_TIMEOUT_MS", 900000)),
+        )
         await runtime.write(f"{agent_dir}/mcp.js", mcp_js.encode())
         # Pre-seed the adapter's tool-metadata cache so the model's first turn already has the tools registered
         # (without it the adapter connects asynchronously and the first turn can see "Tool browser_open not

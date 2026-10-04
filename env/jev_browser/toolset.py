@@ -248,10 +248,10 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
         return self._stamp(await self._guard(self._m.browser_run, session, goal, max_steps))
 
     @vf.tool
-    async def browser_type(self, session: str, element: str, text: str, submit: bool = False) -> str:
+    async def browser_type(self, session: str, element: str | int, text: str, submit: bool = False) -> str:
         """Type text into element [n]; submit=True presses Enter afterwards. This is how you answer needs_input."""
         self._touch(session)
-        return self._stamp(await self._guard(self._m.browser_type, session, element, text, submit))
+        return self._stamp(await self._guard(self._m.browser_type, session, str(element), text, submit))
 
     @vf.tool
     async def browser_text(self, session: str, max_chars: int = 12000, links: bool = False) -> str:
