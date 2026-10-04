@@ -51,7 +51,7 @@ All names are prefixed `mcp__jev_browser__` when loaded through MCP.
 | `browser_text(session, links=true)` | Full text of the current page. With `links=true` it also lists every visible link (text -> URL) and image (alt -> URL), the fast way to collect detail-page URLs or image sources for many items without opening each one. |
 | `browser_wait(session, seconds)` | Only if a result shows an empty page that is still loading. |
 | `browser_close(session)` | When finished. |
-| `browser_screenshot(session)` | Only offered to image-capable agents. A picture of the current screen. Use it when a result does not make sense: something seems covered, a control you expect is missing, a page looks blocked. Not for reading lists; `browser_text` is cheaper and exact. |
+| `browser_screenshot(session)` | Only offered to image-capable agents. A picture of the current screen. Use it when a result does not make sense: something seems covered, a control you expect is missing, a page looks wrong or unexpected. Not for reading lists; `browser_text` is cheaper and exact. |
 
 ### `browser_run` statuses
 
@@ -103,24 +103,40 @@ The harness scrolls anything you name into Jev's view, and Jev matches it agains
 
 ## When a page will not load
 
-If a page does not load or `browser_run` returns `blocked`, do not flail and do not stop early:
+A page that does not load is a normal, usually recoverable technical problem — a slow server, a redirect, a
+region or language default, a consent or login wall, a stale link, an empty page that is still rendering. It is
+a loading problem to work around, not a reason to stop.
 
-- **Wait first.** A page that is still loading usually resolves within a few seconds: `browser_wait(session, 5)`
-  and read it again before concluding anything.
-- **Retry the same URL once** with `browser_goto`; transient failures and half-loaded pages clear on a reload.
-- **Use the site's other official entry points** when one URL fails: its homepage and on-site search box, the
-  regional or mobile domain, a category or listing page that leads to the same records. Give Jev the goal of
-  reaching the target from there. This is the move that works most often.
+If a page does not load, `browser_run` returns `blocked`, or a result is empty, do not flail and do not stop
+early. Work this ladder, in order, before you conclude anything:
+
+1. **Wait first.** A page that is still loading usually resolves within a few seconds: `browser_wait(session, 5)`
+   and read it again before concluding anything.
+2. **Reload once.** `browser_goto` the same URL again; transient failures and half-loaded pages clear on a reload.
+3. **Re-phrase the goal smaller or differently.** `browser_run` returning `blocked` means only that Jev could not
+   find one action for *that* goal on *that* screen. Break the goal into a smaller, more specific step and run it
+   again.
+4. **Use the site's other official entry points** when one URL fails: its homepage and on-site search box, the
+   regional or mobile domain, a category or listing page that leads to the same records. Give Jev the goal of
+   reaching the target from there. This is the move that works most often.
+5. **Search for the site itself** (not its content) if the task gave no URL, or the official site still will not
+   load: open a web search for the site name and go to its real homepage from there.
+
+Only if every step above has failed may you report that a page could not be reached. When you do, name the page,
+quote the exact text you actually saw in a tool result, and continue with whatever you did collect. Report the
+page you saw and its text; do not name a cause you cannot see, and do not describe a page or error you never
+actually received.
+
 - **Do not hop to search engines, caches, or third-party readers** (Google/Bing/DuckDuckGo result pages, web
   archives, "reader" proxies) to get around a page on a site whose URL the task gave you. Those pages are not the
   site, and content read through them is not evidence from the site. A web search is for finding a site when the
-  task gave no URL.
+  task gave no URL or when the site itself will not load.
 - **Keep your session.** A failed page is not a reason to close the session and open a fresh one. Stay in the
   session, change the entry point, and continue.
-- **Never use a block as an early exit.** Report a block only after you have actually tried the options above
-  and the page still will not load. Claiming a block to get out of a hard task — or inventing one — is scored
-  zero, worse than a slow, partial, honest attempt. Keep working toward the answer until the budget runs out or
-  the page truly will not load.
+- **Never give up early.** Report a page as unreachable only after you have worked the ladder above and it still
+  will not load. Giving up to get out of a hard task — or reporting a page or error you never actually saw — is
+  scored zero, worse than a slow, partial, honest attempt. Keep working toward the answer until the budget runs
+  out or the page truly will not load.
 
 ## Producing the answer
 
@@ -132,9 +148,10 @@ If a page does not load or `browser_run` returns `blocked`, do not flail and do 
   that, with the fields named in the task. If a value is not shown on the page, write "not shown" rather
   than guessing or omitting the row.
 - Cite where each item came from (the page URL) when the task involves collecting items.
-- If a site blocks you or a page never loads, say so plainly, name the page, and report whatever you did collect.
-  A block is still a failure and is scored low; an invented complete answer scores zero, which is worse. Only
-  report a block after you have tried the legitimate options (wait, retry once, official entry points).
+- If you could not reach a page after working the full ladder, say so plainly, name the page, quote the text you
+  saw, and report whatever you did collect. Reporting a page or an error you never actually saw is treated as
+  fabrication (score zero). An honest report of an unreached page still scores low; an invented complete answer
+  scores zero, which is worse.
 - Prefer `browser_text` to extract lists and details from a page you have reached; it returns the whole page,
   and reading it is cheaper and more reliable than more navigation. When the task wants URLs or images for
   many items, call `browser_text(session, links=true)` on the listing page instead of opening each item.

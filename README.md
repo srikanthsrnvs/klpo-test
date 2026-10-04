@@ -57,7 +57,7 @@ configs/     prime-rl `rl` and `vf-eval` TOMLs
 harness/     jev-ultrafast harness (MCP server `jev_ultrafast/mcp_server.py`); upstream.patch = diff vs upstream
 scripts/
   setup/     bootstrap_box.sh — fresh GPU box: Chrome, prime-rl, patch, packages, model
-  checks/    preflight.sh and its parts (rollout-server test, tool load test, GPU-free smoke eval, wall probe)
+  checks/    preflight.sh and its parts (rollout-server test, tool load test, GPU-free smoke eval)
   run/       start / watch / resume / stop the run, shared tool server, dashboard
   ops/       process status, browser cleanup
   analysis/  summarize_run.py (per-step metrics), inspect_traces.py (per-trace tool use, rewards)

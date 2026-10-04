@@ -9,6 +9,8 @@ echo "== chrome"; if ! command -v google-chrome >/dev/null; then
 fi; google-chrome --version
 cat > /usr/local/bin/chrome-headless <<'W'
 #!/usr/bin/env bash
+# Present as a normal desktop Chrome (stock UA, no automation marker) so sites serve the real page instead of
+# a challenge page. Browser hygiene at the infrastructure layer — never surfaced in the model's instructions.
 exec /usr/bin/google-chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --window-size=1280,900 \
   --renderer-process-limit=8 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process \
   --disable-extensions --disable-background-networking --no-first-run \

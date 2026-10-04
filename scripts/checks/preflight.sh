@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-launch verification on a fresh box: Chrome/UA, per-rollout tool servers (unit), load test, then a 4-episode
+# Pre-launch verification on a fresh box: Chrome, per-rollout tool servers (unit), load test, then a 4-episode
 # DeepSeek smoke through the real rollout path. Prints a report; exit 1 if any stage fails.
 export PATH="$HOME/.local/bin:$PATH"
 PY=/workspace/prime-rl/.venv/bin/python
@@ -10,7 +10,6 @@ echo "### taskset loads"; uv run --no-sync python -c "
 from jev_browser.taskset import JevBrowserConfig, JevBrowserTaskset
 print('val', sum(1 for _ in JevBrowserTaskset(JevBrowserConfig(split='val')).load()), 'train', sum(1 for _ in JevBrowserTaskset(JevBrowserConfig(split='train')).load()))" || fail=1
 echo "### per-rollout tool servers"; sh /workspace/jev-browser-rl/scripts/ops/clean_browsers.sh >/dev/null; N=3 timeout 600 sh /workspace/jev-browser-rl/scripts/checks/test_rollout_server.sh | grep -E "RESULT|TEST|LEAK"; N=3 timeout 600 sh /workspace/jev-browser-rl/scripts/checks/test_rollout_server.sh | grep -q "TEST: PASS" || fail=1
-echo "### wall probe (new UA)"; timeout 240 $PY /workspace/jev-browser-rl/scripts/checks/wallprobe.py NEW /usr/local/bin/chrome-headless 2>&1 | tail -7
 echo "### judge key"; cd /workspace/jev-browser-rl && $PY -c "
 import importlib.util; spec=importlib.util.spec_from_file_location('v','reward/verifier.py'); v=importlib.util.module_from_spec(spec); spec.loader.exec_module(v); v.load_env()
 f,m=v.call_deepseek('Return only JSON {\"score\": 0.5}','go',model='deepseek-v4-pro',effort='high',timeout=180); print('judge ok', f)" || fail=1
