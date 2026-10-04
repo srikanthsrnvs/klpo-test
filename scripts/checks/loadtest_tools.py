@@ -38,12 +38,14 @@ async def client(i, url, results):
                 page = PAGES[i % len(PAGES)]
                 res = await s.call_tool("browser_open", {"url": page})
                 text = res.content[0].text if res.content else ""
+                if "url:" not in text:
+                    raise RuntimeError(f"unexpected browser_open result: {text[:200]!r}")
+                # per-rollout servers are sessionless; shared servers (serve_tools.py) take a session id
                 sid = next((tok.split()[1] for tok in text.splitlines() if tok.startswith("session:")), None)
-                if not sid:
-                    raise RuntimeError(f"no session id in browser_open result: {text[:200]!r}")
-                res2 = await s.call_tool("browser_text", {"session": sid, "max_chars": 2000})
+                args = {"session": sid} if sid else {}
+                res2 = await s.call_tool("browser_text", {**args, "max_chars": 2000})
                 body = res2.content[0].text if res2.content else ""
-                await s.call_tool("browser_close", {"session": sid})
+                await s.call_tool("browser_close", args)
                 results.append(
                     {
                         "i": i,

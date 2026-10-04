@@ -32,7 +32,7 @@ import verifiers.v1 as vf
 from pydantic import Field
 from verifiers.v1.types import content_text
 
-from jev_browser.toolset import JevBrowserToolset
+from jev_browser.toolset import JevBrowserSharedToolset, JevBrowserToolset
 
 REPO = Path(__file__).resolve().parents[2]  # repo root
 HELD_OUT = [
@@ -368,7 +368,7 @@ class JevBrowserTaskset(vf.Taskset[BenchTask, JevBrowserConfig]):
     def toolsets(cls, config: JevBrowserConfig) -> list[vf.Toolset]:
         # A taskset-level (shared) server only when one is configured by URL; otherwise each rollout gets its own
         # server process (own Chrome, own daemon) through BenchTask.toolsets.
-        return [JevBrowserToolset(vf.ToolsetConfig(url=config.tools.url))] if config.tools.url else []
+        return [JevBrowserSharedToolset(vf.ToolsetConfig(url=config.tools.url))] if config.tools.url else []
 
     def load(self) -> Iterator[BenchTask]:
         cfg = self.config

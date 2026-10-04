@@ -6,7 +6,7 @@ the subprocess runtime is what we have. The upstream harness also writes pi's mo
 window and never writes a settings.json, so pi runs with its default window and no compaction; this subclass
 fixes both. Select with `env.agent.harness.id = "jev-pi"`.
 
-Tool surface: pi gets an ALLOWLIST (`--tools`, JEV_PI_TOOLS, default = the eight browser tools) on top of the
+Tool surface: pi gets an ALLOWLIST (`--tools`, JEV_PI_TOOLS, default = the ten browser tools) on top of the
 config's `disabled_tools` denylist, so a pi upgrade that ships a new built-in never becomes a live host tool.
 """
 
@@ -19,7 +19,10 @@ from pathlib import Path
 from verifiers.v1.acp import ACPConfig
 from verifiers.v1.harnesses.pi.harness import PiHarness
 
-DEFAULT_TOOLS = "browser_open,browser_run,browser_type,browser_back,browser_goto,browser_text,browser_wait,browser_close"
+DEFAULT_TOOLS = (
+    "browser_open,browser_run,browser_answer,browser_type,browser_text,browser_find,browser_goto,browser_back,"
+    "browser_wait,browser_close"
+)
 _HASH_FIELDS = (
     "args",
     "auth",

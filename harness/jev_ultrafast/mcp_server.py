@@ -207,9 +207,22 @@ class Session:
         self.node_by_index = {}
         self.history = []  # shared with Jev so it sees manual actions too
         self.goal = None
+        self.pending_input = None  # the field Jev asked for (element, goal), answered by browser_answer
         self.record = []  # pages reached in this session: (via, url, title, excerpt)
-        self.observe()
+        self.observe_or_stop()
         self.note_page("open")
+
+    def observe_or_stop(self):
+        """Observe; if the page is hung (CDP calls time out), stop loading and observe what rendered so far."""
+        try:
+            return self.observe()
+        except (StalePage, RuntimeError):
+            try:
+                self.browser.call("Page.stopLoading")
+            except Exception:
+                pass
+            time.sleep(0.5)
+            return self.observe()
 
     # ---- observation -------------------------------------------------------------------------
     LAYERS_JS = """(nodes => {
@@ -361,14 +374,33 @@ class Session:
         return "\n".join(lines)
 
     # ---- manual actions ----------------------------------------------------------------------
+    def _node_by_label(self, label, kind):
+        """The node whose table label matches `label` (exact first, then substring) among elements that support
+        `kind`; raises with the candidates when the match is ambiguous or absent."""
+        op = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT"}[kind]
+        want = " ".join(label.lower().split())
+        cands = [e for e in self.elements if op in e["operations"]]
+        norm = lambda e: " ".join(e["label"].lower().split())
+        exact = [e for e in cands if norm(e) == want]
+        found = exact or [e for e in cands if want and want in norm(e)]
+        if len(found) == 1:
+            return self.node_by_index[found[0]["index"]]
+        if not found:
+            raise ValueError(
+                f"No element [{label}] in the latest observation: it is neither an element number nor the label of "
+                f"an element you can {kind}. Use the [n] numbers or labels from the table below."
+            )
+        raise ValueError(
+            f"{len(found)} elements match {label!r}: "
+            + ", ".join(f"[{e['index']}] {e['label'][:40]}" for e in found[:6])
+            + ". Use the [n] number."
+        )
+
     def _action(self, index, kind, option=None):
         index = str(index).strip().lstrip("[").rstrip("]")
         node = self.node_by_index.get(index)
         if node is None:
-            raise ValueError(
-                f"No element [{index}] in the latest observation. Indices change after every action; "
-                "use only the [n] numbers from the table below."
-            )
+            node = self._node_by_label(index, kind)
         # Re-observe so freshness guards pass; the node id survives while the DOM element does.
         self.observe()
         candidates = [a for a in self.page["actions"] if a.get("node") == node and a["kind"] == kind]
@@ -746,7 +778,10 @@ class Session:
                 pass
 
     def goto(self, url):
-        self.browser.call("Page.navigate", url=url)
+        try:
+            self.browser.call("Page.navigate", url=url)
+        except RuntimeError:
+            pass  # the command timed out but the navigation is usually under way; goto_wait judges the page
         self.goto_wait()
 
     def goto_wait(self):
@@ -760,12 +795,14 @@ class Session:
             time.sleep(0.05)
         time.sleep(0.15)
         self.browser.after_input = None
-        self.observe()
+        self.observe_or_stop()
 
     # ---- Jev autopilot -----------------------------------------------------------------------
     def run(self, goal, max_steps):
         if goal != self.goal:
             self.goal, self.history = goal, []
+        self.pending_input = None
+        blocked_scrolls = 0
         steps = []
         started = time.perf_counter()
         verifying_from = None
@@ -841,6 +878,15 @@ class Session:
                     if self.close_dialog():
                         self.observe()
                         continue
+                # Jev only sees the viewport, and the goal's target is often just below it: scroll one screen and
+                # ask again (at most twice per goal) before handing `blocked` back to the policy.
+                if scroll_down is not None and blocked_scrolls < 2:
+                    blocked_scrolls += 1
+                    try:
+                        self.act(scroll_down, page)
+                    except StalePage:
+                        pass
+                    continue
                 return "blocked", steps, None
             if choice == "DONE":
                 # A hesitant DONE while the page is still settling (WAIT nearly tied) is usually premature.
@@ -895,6 +941,7 @@ class Session:
                         value = None
                 if value is None:
                     index = self._index_of(action)
+                    self.pending_input = {"element": index, "goal": goal, "label": action["label"]}
                     return (
                         "needs_input",
                         steps,
@@ -928,6 +975,13 @@ class Session:
             steps.append(entry)
             recent = self.history[-3:]
             if len(recent) == 3 and all(h["page_changed"] is False and h["kind"] != "wait" for h in recent):
+                if scroll_down is not None and blocked_scrolls < 2:
+                    blocked_scrolls += 1
+                    try:
+                        self.act(scroll_down, page)
+                    except StalePage:
+                        pass
+                    continue
                 return "blocked", steps, None
         return "budget", steps, None
 
@@ -1188,6 +1242,58 @@ def browser_run(session: str, goal: str, max_steps: int = 25) -> str:
 
 
 @server.tool()
+def browser_answer(session: str, text: str, max_steps: int = 25) -> str:
+    """Answer the field Jev asked for (status needs_input): types text into that field, then resumes the same goal.
+    One call replaces browser_type + browser_run with the same goal."""
+    s = _session(session)
+    pending = s.pending_input
+    if not pending:
+        return s.render(note="nothing to answer: the last browser_run did not stop with needs_input. Use browser_run.")
+    try:
+        s.do(s._action(pending["element"], "fill"), text=text)
+    except (StalePage, ValueError) as e:
+        return s.render(note=f"answer failed: {e}")
+    return browser_run(session, pending["goal"], max_steps)
+
+
+TEXT_CAP = 12000
+
+
+def _page_text(s):
+    s.observe()
+    try:
+        text = s.browser.evaluate(
+            "(() => { const t = document.body ? document.body.innerText : ''; return t.replace(/\\s+\\n/g, '\\n'); })()"
+        )
+    except (StalePage, RuntimeError):
+        text = s.page["text"]
+    return "\n".join(line.strip() for line in str(text).splitlines() if line.strip())
+
+
+@server.tool()
+def browser_find(session: str, query: str, context: int = 300, max_hits: int = 10) -> str:
+    """Find a word or phrase in the ENTIRE page text and return each hit with `context` characters around it and its
+    character offset (usable as browser_text's offset). The cheap way to locate an item on a long page."""
+    s = _session(session)
+    text = _page_text(s)
+    total = len(text)
+    hits = [m.start() for m in re.finditer(re.escape(query.strip()), text, re.I)] if query.strip() else []
+    if not hits:
+        return f"url: {s.page['url']}\n{query!r} not found in the page text ({total} chars)."
+    context = max(40, min(int(context), 1500))
+    shown, last_end = [], -1
+    for h in hits:
+        if h < last_end:
+            continue  # overlaps the previous window
+        a, b = max(0, h - context), min(total, h + len(query) + context)
+        shown.append(f"[chars {a}-{b}] …{text[a:b]}…")
+        last_end = b
+        if len(shown) >= max(1, min(int(max_hits), 50)):
+            break
+    return f"url: {s.page['url']}\n{len(hits)} hit(s) for {query!r} in {total} chars (showing {len(shown)}):\n" + "\n".join(shown)
+
+
+@server.tool()
 def browser_screenshot(session: str) -> Image:
     """JPEG screenshot of the tab. Use when the element table is ambiguous or to verify visually."""
     s = _session(session)
@@ -1196,26 +1302,25 @@ def browser_screenshot(session: str) -> Image:
 
 
 @server.tool()
-def browser_text(session: str, max_chars: int = 12000, links: bool = False) -> str:
-    """Read the ENTIRE page's text (not just the visible part), up to max_chars. Use this first on long pages such as
-    order lists or search results so you see every item at once instead of scrolling.
-    links=true also returns the page's links (text -> URL) and images (alt -> URL), which is the fast way to collect
-    detail-page URLs or image sources for many items without opening each one."""
+def browser_text(session: str, max_chars: int = 12000, offset: int = 0, links: bool = False) -> str:
+    """Read the page's text (the whole document, not just the visible part) from character `offset`, up to max_chars
+    (at most 12,000 per call). A long page is read in parts: the result says where it stopped and what offset to pass
+    next; browser_find(query) gives the offset of a specific item. links=true also returns the page's links
+    (text -> URL) and images (alt -> URL), the fast way to collect detail-page URLs or image sources."""
     s = _session(session)
-    s.observe()
-    try:
-        text = s.browser.evaluate(
-            "(() => { const t = document.body ? document.body.innerText : ''; return t.replace(/\\s+\\n/g, '\\n'); })()"
-        )
-    except (StalePage, RuntimeError):
-        text = s.page["text"]
-    text = "\n".join(line.strip() for line in str(text).splitlines() if line.strip())
+    text = _page_text(s)
     total = len(text)
-    if total > max_chars:
-        text = text[:max_chars] + (
-            f"\n[truncated: showing {max_chars} of {total} characters; call again with a larger max_chars for the rest]"
-        )
-    out = f"url: {s.page['url']}\nfull page text ({total} chars{', truncated' if total > max_chars else ''}):\n{text}"
+    max_chars = max(500, min(int(max_chars), TEXT_CAP))
+    offset = max(0, min(int(offset), total))
+    chunk = text[offset : offset + max_chars]
+    end = offset + len(chunk)
+    part = f"characters {offset}-{end} of {total}" if (offset or end < total) else f"{total} chars"
+    more = (
+        f"\n[page continues: call browser_text(offset={end}) for the next part, or browser_find(query) to jump to a term]"
+        if end < total
+        else ""
+    )
+    out = f"url: {s.page['url']}\npage text ({part}):\n{chunk}{more}"
     if links:
         out += "\n\n" + s.render_links(max_items=max(40, max_chars // 60))
     return out

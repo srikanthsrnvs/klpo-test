@@ -18,5 +18,5 @@ echo "### smoke eval (DeepSeek policy, 4 episodes)"; sh /workspace/jev-browser-r
 # Wait (up to 25 min) for the detached vf-eval to exit; the old condition broke out of the loop immediately.
 sleep 20; for i in $(seq 1 100); do pgrep -f "bin/vf-ev[a]l" >/dev/null || break; sleep 15; done
 sleep 5; sh /workspace/jev-browser-rl/scripts/checks/smoke_report.sh | tail -8
-grep -q "not_found 0" /workspace/vf-runs/smoke-deepseek/traces.jsonl 2>/dev/null; sh /workspace/jev-browser-rl/scripts/checks/smoke_report.sh | grep -q "tools_offered 8" || fail=1
+grep -q "not_found 0" /workspace/vf-runs/smoke-deepseek/traces.jsonl 2>/dev/null; sh /workspace/jev-browser-rl/scripts/checks/smoke_report.sh | grep -q "tools_offered 10" || fail=1
 [ $fail = 0 ] && echo "PREFLIGHT: PASS" || echo "PREFLIGHT: FAIL"

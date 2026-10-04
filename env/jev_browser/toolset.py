@@ -1,7 +1,7 @@
 """The jev-browser MCP tools as a verifiers Toolset.
 
-One tool server process per env-server worker; its rollouts share one headless Chrome (each `browser_open`
-is its own tab/session, so rollouts do not see each other's pages). The CDP port is chosen per process so
+One tool server process per rollout (JevBrowserToolset: one tab, no session ids) or one shared server for many
+rollouts (JevBrowserSharedToolset: each `browser_open` is its own tab/session). The CDP port is chosen per process so
 several workers on one machine do not collide. Tool names are bare (`browser_open`, ...) so the skill document
 the policy reads matches what the harness exposes.
 
@@ -111,7 +111,10 @@ def _mmss(seconds: float) -> str:
     return f"{seconds // 60}m{seconds % 60:02d}s"
 
 
-class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
+class _JevBase(vf.Toolset[vf.ToolsetConfig]):
+    """Chrome + daemon lifecycle, the worker pool, the reaper, the time stamp and the URL guard; the two surfaces
+    below add the tools."""
+
     TOOL_PREFIX = None
 
     async def setup(self) -> None:
@@ -224,11 +227,112 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
             return why
         return self._m.browser_goto(session, url)
 
+
+class JevBrowserToolset(_JevBase):
+    """The per-rollout surface the policy trains on: ONE tab per rollout, no session ids. browser_open reuses the
+    tab once one exists; needs_input is answered with browser_answer; long pages are read with browser_find and
+    paged browser_text."""
+
+    NO_PAGE = "error: no page is open yet. Call browser_open(url) first."
+
+    async def setup(self) -> None:
+        await super().setup()
+        self._session: str | None = None
+
+    async def _with_page(self, fn, *args):
+        """Run a harness call on the rollout's tab; a lost tab (Chrome restarted) is reported, not raised."""
+        if not self._session:
+            return self.NO_PAGE
+        self._touch(self._session)
+        out = await self._guard(fn, self._session, *args)
+        if isinstance(out, str) and (out.startswith("Unknown session") or "all sessions are gone" in out):
+            self._session = None
+            return "error: the page was lost (the browser restarted). Call browser_open(url) again."
+        return out
+
+    @vf.tool
+    async def browser_open(self, url: str) -> str:
+        """Open a public http(s) URL in your tab (the first call opens the tab; later calls navigate it, like
+        browser_goto). Returns the element table and the first 8,000 characters of the page's text (whole document;
+        a [truncated] line says when there is more, which browser_text and browser_find read)."""
+        if self._session and self._session in self._m.SESSIONS:
+            return await self.browser_goto(url)
+        try:
+            self._reap()
+        except Exception:
+            pass
+        out = await self._guard(self._open_checked, url)
+        if isinstance(out, str) and out.startswith("session: "):
+            self._session = out.split()[1]
+            self._touch(self._session)
+            out = out.split("\n", 1)[1] if "\n" in out else ""  # the policy never needs the session id
+        return self._stamp(out)
+
+    @vf.tool
+    async def browser_run(self, goal: str, max_steps: int = 25) -> str:
+        """THE MAIN NAVIGATION TOOL. State one goal in plain English and Jev (a fast browser model) clicks, types,
+        scrolls and waits toward it, then returns the page and a status: done, needs_input (answer with
+        browser_answer(text)), blocked (use a smaller goal, or browser_goto a URL you know), budget (call again with
+        the same goal to continue)."""
+        return self._stamp(await self._with_page(self._m.browser_run, goal, max_steps))
+
+    @vf.tool
+    async def browser_answer(self, text: str, max_steps: int = 25) -> str:
+        """Answer needs_input: types text into the field Jev asked for and resumes the same goal in one call."""
+        return self._stamp(await self._with_page(self._m.browser_answer, text, max_steps))
+
+    @vf.tool
+    async def browser_type(self, element: str | int, text: str, submit: bool = False) -> str:
+        """Type text into an element, named by its [n] number or its label from the table; submit=True presses
+        Enter afterwards (search boxes without a button)."""
+        return self._stamp(await self._with_page(self._m.browser_type, str(element), text, submit))
+
+    @vf.tool
+    async def browser_text(self, max_chars: int = 12000, offset: int = 0, links: bool = False) -> str:
+        """Read the page's text (whole document, not just the viewport) from character `offset`, up to max_chars
+        (12,000 at most per call); the result says what offset to pass for the next part. links=True also lists
+        every visible link (text -> URL) and image (alt -> URL). Use browser_find to jump to an item."""
+        return self._stamp(await self._with_page(self._m.browser_text, max_chars, offset, links))
+
+    @vf.tool
+    async def browser_find(self, query: str, context: int = 300, max_hits: int = 10) -> str:
+        """Find a word or phrase anywhere in the page's text; returns each hit with context around it and its
+        character offset (for browser_text). The cheap way to locate an item on a long page."""
+        return self._stamp(await self._with_page(self._m.browser_find, query, context, max_hits))
+
+    @vf.tool
+    async def browser_goto(self, url: str) -> str:
+        """Navigate your tab to a public http(s) URL."""
+        return self._stamp(await self._with_page(self._goto_checked, url))
+
+    @vf.tool
+    async def browser_back(self) -> str:
+        """Go back one page."""
+        return self._stamp(await self._with_page(self._m.browser_back))
+
+    @vf.tool
+    async def browser_wait(self, seconds: float = 1.0) -> str:
+        """Wait for the page to settle (up to 10 s), then re-read it."""
+        return self._stamp(await self._with_page(self._m.browser_wait, seconds))
+
+    @vf.tool
+    async def browser_close(self) -> str:
+        """Close your tab when finished."""
+        if not self._session:
+            return self._stamp("no page is open")
+        sid, self._session = self._session, None
+        self._last_used.pop(sid, None)
+        return self._stamp(await self._guard(self._m.browser_close, sid))
+
+
+class JevBrowserSharedToolset(_JevBase):
+    """The session-addressed surface for ONE shared server serving many rollouts (scripts/run/serve_tools.py,
+    `taskset.tools.url`). Each browser_open is its own tab; every other tool names the session."""
+
     @vf.tool
     async def browser_open(self, url: str) -> str:
         """Open a public http(s) URL in a fresh tab and start a session. Returns the session id, the element table
-        and the first 8,000 characters of the page's text (whole document; a [truncated] line tells you when there
-        is more, which browser_text reads). Every other tool needs the session id this returns."""
+        and the first 8,000 characters of the page's text. Every other tool needs the session id this returns."""
         try:
             self._reap()
         except Exception:
@@ -240,26 +344,33 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
 
     @vf.tool
     async def browser_run(self, session: str, goal: str, max_steps: int = 25) -> str:
-        """THE MAIN NAVIGATION TOOL. State one goal in plain English and Jev (a fast browser model) clicks,
-        types, scrolls and waits toward it, then returns the page and a status: done, needs_input (type a value
-        into the named element with browser_type, then call browser_run again with the SAME goal), blocked (use a
-        smaller goal or browser_goto), budget (call again with the same goal to continue)."""
+        """THE MAIN NAVIGATION TOOL: Jev drives the tab toward one goal; status done / needs_input / blocked / budget."""
         self._touch(session)
         return self._stamp(await self._guard(self._m.browser_run, session, goal, max_steps))
 
     @vf.tool
+    async def browser_answer(self, session: str, text: str, max_steps: int = 25) -> str:
+        """Answer needs_input: type into the field Jev asked for and resume the same goal."""
+        self._touch(session)
+        return self._stamp(await self._guard(self._m.browser_answer, session, text, max_steps))
+
+    @vf.tool
     async def browser_type(self, session: str, element: str | int, text: str, submit: bool = False) -> str:
-        """Type text into element [n]; submit=True presses Enter afterwards. This is how you answer needs_input."""
+        """Type text into element [n] or the element with that label; submit=True presses Enter afterwards."""
         self._touch(session)
         return self._stamp(await self._guard(self._m.browser_type, session, str(element), text, submit))
 
     @vf.tool
-    async def browser_text(self, session: str, max_chars: int = 12000, links: bool = False) -> str:
-        """Read the ENTIRE page's text (not just the viewport), up to max_chars (default 12,000; a [truncated] line
-        tells you when to call again with a larger value). links=True also lists every visible link (text -> URL)
-        and image (alt -> URL). Use this to extract lists, details, URLs."""
+    async def browser_text(self, session: str, max_chars: int = 12000, offset: int = 0, links: bool = False) -> str:
+        """Read the page's text from `offset`, up to max_chars (12,000 max); links=True also lists links and images."""
         self._touch(session)
-        return self._stamp(await self._guard(self._m.browser_text, session, max_chars, links))
+        return self._stamp(await self._guard(self._m.browser_text, session, max_chars, offset, links))
+
+    @vf.tool
+    async def browser_find(self, session: str, query: str, context: int = 300, max_hits: int = 10) -> str:
+        """Find a phrase in the page's text; each hit comes with context and its character offset."""
+        self._touch(session)
+        return self._stamp(await self._guard(self._m.browser_find, session, query, context, max_hits))
 
     @vf.tool
     async def browser_goto(self, session: str, url: str) -> str:
@@ -322,18 +433,22 @@ class JevBrowserToolset(vf.Toolset[vf.ToolsetConfig]):
         return self._stamp(await self._guard(self._m.browser_close, session))
 
 
-def _apply_tool_surface() -> None:
+POLICY_TOOLS = (
+    "browser_open,browser_run,browser_answer,browser_type,browser_text,browser_find,browser_goto,browser_back,"
+    "browser_wait,browser_close"
+)
+
+
+def _apply_tool_surface(cls=None) -> None:
     """Shape the served tool set from the environment (same knobs as scripts/run/serve_tools.py)."""
-    if os.environ.get("JEV_DISABLE_SCREENSHOT", "1") == "1" and hasattr(JevBrowserToolset, "browser_screenshot"):
-        del JevBrowserToolset.browser_screenshot
-    whitelist = os.environ.get(
-        "JEV_TOOL_WHITELIST",
-        "browser_open,browser_run,browser_type,browser_back,browser_goto,browser_text,browser_wait,browser_close",
-    )
+    cls = cls or JevBrowserToolset
+    if os.environ.get("JEV_DISABLE_SCREENSHOT", "1") == "1" and hasattr(cls, "browser_screenshot"):
+        del cls.browser_screenshot
+    whitelist = os.environ.get("JEV_TOOL_WHITELIST", POLICY_TOOLS)
     keep = {t.strip() for t in whitelist.split(",") if t.strip()}
-    for name in [n for n in dir(JevBrowserToolset) if n.startswith("browser_") and n not in keep]:
+    for name in [n for n in dir(cls) if n.startswith("browser_") and n not in keep]:
         try:
-            delattr(JevBrowserToolset, name)
+            delattr(cls, name)
         except AttributeError:
             pass
 

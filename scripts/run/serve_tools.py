@@ -10,24 +10,12 @@ ourselves in the prime-rl venv and pointing the taskset at it (`taskset.tools.ur
 import os
 
 import verifiers.v1 as vf
-from jev_browser.toolset import JevBrowserToolset
+from jev_browser.toolset import JevBrowserSharedToolset as JevBrowserToolset, _apply_tool_surface
 
 if __name__ == "__main__":
-    if os.environ.get("JEV_DISABLE_SCREENSHOT") == "1":
-        # Text-only policy: prime-rl refuses multimodal samples unless vision training is configured.
-        del JevBrowserToolset.browser_screenshot
     # Small models given click/scroll/select tools stop delegating to Jev and micro-step (see SKILL.md); serve
     # only the high-level tools unless JEV_TOOL_WHITELIST says otherwise.
-    whitelist = os.environ.get(
-        "JEV_TOOL_WHITELIST",
-        "browser_open,browser_run,browser_type,browser_back,browser_goto,browser_text,browser_wait,browser_close",
-    )
-    keep = {t.strip() for t in whitelist.split(",") if t.strip()}
-    for name in [n for n in dir(JevBrowserToolset) if n.startswith("browser_") and n not in keep]:
-        try:
-            delattr(JevBrowserToolset, name)
-        except AttributeError:
-            pass
+    _apply_tool_surface(JevBrowserToolset)
     os.environ.setdefault("JEV_TOOL_WORKERS", "48")  # one shared server serves every rollout
     os.environ.setdefault("MCP_HOST", "127.0.0.1")
     os.environ.setdefault("MCP_PORT", "18100")

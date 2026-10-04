@@ -47,19 +47,25 @@ Jev's limits, which define what the policy must do:
   (every page reached in the session with a short text excerpt), which is appended to every `browser_run`
   result for the policy to read.
 
-**The harness** (jev-browser) is an MCP server around a real Chrome tab. The policy's tools:
-- `browser_open(url)` -> session id, element table, and the FULL text of the whole page (not just the viewport),
-  so the policy can enumerate every target up front without scrolling.
-- `browser_run(session, goal, max_steps)` -> Jev drives toward the goal; returns the actions taken, a status,
-  the current page (element table + visible text), and the task record. Statuses: `done` (Jev believes the goal
-  is satisfied on screen), `needs_input` (element [n] needs a value from the policy), `blocked` (no action
-  advances the goal; the result says why when the harness knows, e.g. "page kept changing"), `budget` (step
-  budget used; call again with the same goal to continue).
-- `browser_type(session, element, text, submit=false)` -> types into element [n]; `submit=true` presses Enter.
-- `browser_text(session, max_chars, links=false)` -> the whole page's text; with `links=true` also every visible
-  link (text -> URL) and image (alt -> URL). This is the intended way to extract lists, details, URLs, images.
-- `browser_goto(session, url)`, `browser_back(session)`, `browser_wait(session, seconds)`,
-  `browser_screenshot(session)` (only for image-capable policies), `browser_close(session)`.
+**The harness** (jev-browser) is an MCP server around a real Chrome tab. The policy has ONE tab and no session
+ids. Its tools:
+- `browser_open(url)` -> element table and the first 8,000 characters of the whole page's text (not just the
+  viewport), so the policy can enumerate targets up front; a later call navigates the same tab (like goto).
+- `browser_run(goal, max_steps)` -> Jev drives toward the goal; returns the actions taken, a status, the current
+  page (element table + visible text), and the task record. Statuses: `done` (Jev believes the goal is satisfied
+  on screen), `needs_input` (a field needs a value from the policy), `blocked` (no action advances the goal, after
+  the harness itself scrolled and retried; the result says why when it knows), `budget` (step budget used; call
+  again with the same goal to continue).
+- `browser_answer(text)` -> types the value into the field Jev asked for and resumes the same goal: the one-call
+  answer to `needs_input`.
+- `browser_type(element, text, submit=false)` -> types into an element by [n] number or label; `submit=true`
+  presses Enter.
+- `browser_find(query)` -> every hit of a phrase in the whole page's text with context and character offsets.
+- `browser_text(max_chars, offset, links=false)` -> the page's text from `offset`, at most 12,000 characters per
+  call (the result says what offset continues it); with `links=true` also every visible link (text -> URL) and
+  image (alt -> URL). find + text is the intended way to extract lists, details, URLs, images.
+- `browser_goto(url)`, `browser_back()`, `browser_wait(seconds)`, `browser_screenshot()` (only for image-capable
+  policies), `browser_close()`.
 
 What the harness does automatically, so the policy should not be credited or blamed for it:
 - Hit-tests every control and reports z-order: an `on top:` line names any overlay (cookie banner, chat widget,
@@ -73,8 +79,8 @@ What the harness does automatically, so the policy should not be credited or bla
 - Captures an evidence screenshot after every browser action (you may be given these).
 
 The policy is told today's date and its wall-clock budget in its instructions, and is told the rules in its
-skill document: one intention per goal with a visible end state; answer needs_input and re-issue the same
-goal; prefer browser_text for extraction; on blocked, use a smaller goal or browser_goto rather than repeating;
+skill document: one intention per goal with a visible end state; answer needs_input with browser_answer;
+prefer browser_find / browser_text for extraction; on blocked, use a smaller goal or browser_goto rather than repeating;
 check page defaults on zero results; find the site via search if no URL is given; report unreached pages
 honestly, quoting the text actually seen; never type credentials; every reported fact must come from a page
 visited in the session.
@@ -140,10 +146,11 @@ Judge each as `good`, `mixed`, or `poor`, with one sentence of evidence citing t
   at most one or two pages. Poor: micro-steps the policy should have let Jev chain ("click the Shower link"),
   or everything-at-once goals Jev cannot finish ("open every tracking page").
 - `needs_input_protocol`: when a result had status `needs_input`, the policy supplied a sensible value with
-  `browser_type` on the named element and then re-issued the SAME goal. Poor: typing into dropdowns, inventing
-  values, ignoring the request, or changing the goal.
-- `extraction_over_navigation`: to collect lists, URLs, or details, the policy used `browser_text`
-  (and `links=true` when URLs/images were needed) on listing pages rather than clicking into every item.
+  `browser_answer` (or typed it and re-issued the same goal). Poor: inventing values, ignoring the request, or
+  abandoning the goal.
+- `extraction_over_navigation`: to collect lists, URLs, or details, the policy used `browser_find` and
+  `browser_text` (and `links=true` when URLs/images were needed) on listing pages rather than clicking into every
+  item, and read long pages in parts rather than re-opening them.
 - `recovery`: on `blocked` or `budget`, the policy tried a smaller or differently phrased goal, `browser_goto`
   to a known URL, or `browser_back`; it did not repeat the identical failing call more than once.
 - `premise_checks`: when results were empty or contradicted the task, the policy checked the page's defaults
@@ -153,8 +160,8 @@ Judge each as `good`, `mixed`, or `poor`, with one sentence of evidence citing t
   task record before answering, and did not stop after the first screen or the first item.
 - `efficiency`: tool calls and time were proportionate to the task. Note waste: loops, redundant opens,
   repeated identical goals, re-reading unchanged pages.
-- `session_discipline`: the policy worked within the session it opened. Poor: repeatedly closing and reopening
-  sessions, opening the same site again instead of continuing, or abandoning a URL the task gave for search engines
+- `session_discipline`: the policy worked within its tab. Poor: re-opening the same page over and over instead
+  of continuing, or abandoning a URL the task gave for search engines
   or third-party proxies/readers/caches (web.archive.org, r.jina.ai, webcache) when the given page was reachable.
   Reading a page through a proxy service instead of the harness is not using the harness, and it is not creditable
   as navigation. Legitimate: a web search when the task gave no URL, or after the given site was truly unreachable.

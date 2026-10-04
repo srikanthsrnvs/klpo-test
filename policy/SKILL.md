@@ -25,7 +25,8 @@ If you find yourself reasoning about which element to click, stop: that is Jev's
 - Jev **cannot judge whether the overall task is finished**. It only knows whether *your current goal* looks
   satisfied on the current screen, and it tends to say "done" as soon as it does. Task completion is yours.
 - Jev **cannot invent values**. It will not guess a city, a name, a date string, or a search term. When it
-  needs one, control returns to you with `status: needs_input` and the field to fill.
+  needs one, control returns to you with `status: needs_input` and the field it wants; you answer with
+  `browser_answer(value)` and Jev carries on.
 - Jev **remembers only the current goal**. The harness keeps a **task record** (every page reached, with a
   text excerpt) and appends it to every `browser_run` result. That record is your memory. Read it instead
   of re-visiting pages.
@@ -41,25 +42,29 @@ If you find yourself reasoning about which element to click, stop: that is Jev's
 
 All names are prefixed `mcp__jev_browser__` when loaded through MCP.
 
+You have ONE browser tab. There are no session ids: every tool acts on your tab.
+
 | Tool | Use it for |
 | --- | --- |
-| `browser_open(url)` | Start. Returns `session: sN`, the element table, and the first 8,000 characters of the **whole page's text** (not just the visible part). A `[truncated …]` line tells you when there is more; read the rest with `browser_text`. Keep the session id. |
-| `browser_run(session, goal, max_steps=25)` | Hand the tab to Jev with one goal. Returns Jev's actions, a status, the current page, and the task record. |
-| `browser_type(session, element, text, submit=false)` | Only to answer `needs_input`. `element` is the `[n]` the result named. `submit=true` also presses Enter (search boxes and forms with no visible button). |
-| `browser_back(session)` | Return to the previous page between goals, if the next target is there. Jev can also do this itself. |
-| `browser_goto(session, url)` | Open a URL you know. Returns the whole page's text. |
-| `browser_text(session, max_chars=12000, links=false)` | Full text of the current page, up to `max_chars` (default 12,000). A `[truncated …]` line tells you when to call again with a larger `max_chars`. With `links=true` it also lists every visible link (text -> URL) and image (alt -> URL), the fast way to collect detail-page URLs or image sources for many items without opening each one. |
-| `browser_wait(session, seconds)` | Only if a result shows an empty page that is still loading. |
-| `browser_close(session)` | When finished. |
-| `browser_screenshot(session)` | Only offered to image-capable agents. A picture of the current screen. Use it when a result does not make sense: something seems covered, a control you expect is missing, a page looks wrong or unexpected. Not for reading lists; `browser_text` is cheaper and exact. |
+| `browser_open(url)` | Start (opens your tab), or later: navigate it to another URL. Returns the element table and the first 8,000 characters of the **whole page's text** (not just the visible part); a `[truncated …]` line tells you when there is more. |
+| `browser_run(goal, max_steps=25)` | Hand the tab to Jev with one goal. Returns Jev's actions, a status, the current page, and the task record. |
+| `browser_answer(text)` | The only way to answer `needs_input`: types `text` into the field Jev asked for and resumes the same goal. One call. |
+| `browser_type(element, text, submit=false)` | Type into an element yourself, named by its `[n]` number or its label from the table. `submit=true` also presses Enter (search boxes with no button). Rarely needed: `browser_answer` handles Jev's requests. |
+| `browser_find(query)` | Find a word or phrase anywhere in the page's text. Each hit comes with the text around it and its character offset. The cheap way to locate an item, a price, a date on a long page. |
+| `browser_text(max_chars=12000, offset=0, links=false)` | Read the page's text from `offset`, up to 12,000 characters per call. The result says what `offset` to pass for the next part; use `browser_find` to jump straight to an item. With `links=true` it also lists every visible link (text -> URL) and image (alt -> URL), the fast way to collect detail-page URLs or image sources for many items without opening each one. |
+| `browser_goto(url)` | Open a URL you know in your tab. Returns the page's text. |
+| `browser_back()` | Return to the previous page between goals, if the next target is there. Jev can also do this itself. |
+| `browser_wait(seconds)` | Only if a result shows an empty page that is still loading. |
+| `browser_close()` | When finished. |
+| `browser_screenshot()` | Only offered to image-capable agents. A picture of the current screen. Use it when a result does not make sense: something seems covered, a control you expect is missing, a page looks wrong or unexpected. Not for reading lists; `browser_text` is cheaper and exact. |
 
 ### `browser_run` statuses
 
 | Status | Meaning | What you do |
 | --- | --- | --- |
 | `done` | Jev believes your goal is satisfied on the current screen. | Read the result and the task record. Decide: finished, or next goal. Never treat `done` as "task finished". |
-| `needs_input` | Jev wants to type into element `[n]` and has no value. | `browser_type(session, "n", value)`, then `browser_run` again with the **same goal**. |
-| `blocked` | Jev found no action that advances the goal. | Give a smaller or differently phrased goal, or `browser_goto` a URL you know. |
+| `needs_input` | Jev wants to type into a field and has no value. | `browser_answer(value)`: it types the value and continues the same goal. |
+| `blocked` | Jev found no action that advances the goal (the harness already scrolled and retried). | Give a smaller or differently phrased goal, or `browser_goto` a URL you know. |
 | `budget` | `max_steps` used up. | Call `browser_run` again with the same goal; history is kept. |
 
 ## Writing goals Jev succeeds at
@@ -89,16 +94,17 @@ The harness scrolls anything you name into Jev's view, and Jev matches it agains
 
 1. `browser_open(start_url)`. If the task names a site or listing without giving a URL, do not stop: open a web
    search for it (for example `browser_open("https://duckduckgo.com/?q=<site or listing name>")`) and give Jev
-   the goal of opening the matching result. Read the **page text** (if it is marked truncated, `browser_text` reads
-   the rest). Write down every target the task needs (every order, every result to check, every form section).
-   Count them. That is your completion criterion.
+   the goal of opening the matching result. Read the **page text** (if it is marked truncated, `browser_find` and
+   `browser_text(offset=…)` read the rest). Write down every target the task needs (every order, every result to
+   check, every form section). Count them. That is your completion criterion.
 2. For each target, `browser_run` with one goal. If the target is on the page you came from, Jev will
    usually press Back itself; if it reports `blocked`, call `browser_back` and retry.
-3. On `needs_input`, supply the value from the task or the human's instructions, then rerun the same goal.
-   If the value is personal data you do not have (a passenger's legal name, passport number, phone), stop
-   and report what is needed instead of inventing it.
-4. On `done`, read the **task record**. Extract what you need from the excerpt, or call `browser_text` if
-   the excerpt cuts off before the detail you need. Check your count. If targets remain, continue.
+3. On `needs_input`, answer with `browser_answer(value)` using the value from the task or the human's
+   instructions. If the value is personal data you do not have (a passenger's legal name, passport number,
+   phone), stop and report what is needed instead of inventing it.
+4. On `done`, read the **task record**. Extract what you need from the excerpt, or call `browser_find` /
+   `browser_text` if the excerpt cuts off before the detail you need. Check your count. If targets remain,
+   continue.
 5. When every target is covered, `browser_close` and write the answer: one line per item, facts taken from
    the record or page text, nothing invented.
 
@@ -132,8 +138,8 @@ actually received.
   archives, "reader" proxies) to get around a page on a site whose URL the task gave you. Those pages are not the
   site, and content read through them is not evidence from the site. A web search is for finding a site when the
   task gave no URL or when the site itself will not load.
-- **Keep your session.** A failed page is not a reason to close the session and open a fresh one. Stay in the
-  session, change the entry point, and continue.
+- **Keep your tab.** A failed page is not a reason to close and reopen anything: `browser_open` and `browser_goto`
+  both navigate the same tab. Change the entry point and continue.
 - **Never give up early.** Report a page as unreachable only after you have worked the ladder above and it still
   will not load. Giving up to get out of a hard task — or reporting a page or error you never actually saw — is
   scored zero, worse than a slow, partial, honest attempt. Keep working toward the answer until the budget runs
@@ -153,9 +159,10 @@ actually received.
   saw, and report whatever you did collect. Reporting a page or an error you never actually saw is treated as
   fabrication (score zero). An honest report of an unreached page still scores low; an invented complete answer
   scores zero, which is worse.
-- Prefer `browser_text` to extract lists and details from a page you have reached; it returns the whole page,
-  and reading it is cheaper and more reliable than more navigation. When the task wants URLs or images for
-  many items, call `browser_text(session, links=true)` on the listing page instead of opening each item.
+- Prefer `browser_find` and `browser_text` to extract lists and details from a page you have reached; reading
+  is cheaper and more reliable than more navigation. Find the item first (`browser_find("order 1ZE5698")`), then
+  read around it; read a long page in parts rather than asking for all of it. When the task wants URLs or images
+  for many items, call `browser_text(links=true)` on the listing page instead of opening each item.
 - Budget your effort. Listing pages usually carry most of what a task needs; open detail pages only for fields
   the listing lacks, and if there are many, sample a few and say so rather than opening every one.
 - Watch the clock. Every tool result ends with a `time:` line: how much wall-clock you have used and how much of
@@ -193,6 +200,7 @@ pi (`~/.pi/agent/mcp.json`) or Claude Code (`.mcp.json`):
     "exposure": "direct", "timeout": 180 } } }
 ```
 
-Expose only these tools to the agent: `browser_open, browser_run, browser_type, browser_back, browser_goto,
-browser_text, browser_wait, browser_close`. The server also has low-level click/scroll/select tools for
-debugging; do not give them to a small model. Given click tools, small models stop delegating and fail.
+Expose only these tools to the agent: `browser_open, browser_run, browser_answer, browser_type, browser_text,
+browser_find, browser_goto, browser_back, browser_wait, browser_close` (the training server drops the session
+parameter: one tab per rollout). The server also has low-level click/scroll/select tools for debugging; do not
+give them to a small model. Given click tools, small models stop delegating and fail.
