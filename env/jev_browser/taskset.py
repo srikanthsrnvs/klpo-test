@@ -47,6 +47,9 @@ HELD_OUT = [
     "bu2-129",
     "bu2-183",
 ]
+# A Jev API refusal is billing or auth, never transient: a rollout that saw one could not navigate at all. It is
+# failed as an environment error (excluded from training, no judge call) instead of being scored.
+JEV_REFUSED = re.compile(r"Model provider returned HTTP (401|402|403)")
 NO_FINAL_ANSWER = (
     "NO FINAL ANSWER. The episode ended (time budget exhausted or the agent was stopped) while the policy was "
     "still calling tools, so it never wrote an answer. Any earlier text was narration between tool calls, not an "
@@ -281,6 +284,11 @@ class BenchTask(vf.Task[BenchData, vf.State, BenchTaskConfig]):
             final_text = NO_FINAL_ANSWER + (f"\nLast narration: {narration}" if narration else "")
         else:
             final_text = final
+        if JEV_REFUSED.search(trajectory):
+            raise RuntimeError(
+                "environment failure: the Jev API refused requests (HTTP 401/402/403: credits or key); "
+                "the rollout could not navigate and is not judged"
+            )
         canary = None
         m = re.search(r"CANARY\s+(\S+)", self.data.rubric or "")
         if m:
