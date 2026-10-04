@@ -36,6 +36,7 @@ optimization_dtype = "bfloat16"
 fused_lm_head_token_chunk_size = 2048
 cp = 2
 cp_style = "ulysses"
+ac_offloading = "None"           # prime-rl offloads activations by default; Run 2 crashed inside that path
 
 [trainer.model.ac]
 # No activation offloading: the CP split is what makes the window fit, and Run 2's crash (an int cu_seqlens-like

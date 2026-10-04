@@ -1,0 +1,53 @@
+# SFT warm start: full fine-tune of Qwen3.5-9B on DeepSeek V4 Pro trajectories the judge scored >= 0.5 (dataset built by
+# scripts/run/sft_warmstart.sh, which also sets max_steps from the number of kept rows: ~2 epochs of 8 samples/step).
+# 8x A100-40GB: FSDP over 8 ranks with 4-way Ulysses CP so a 131k-token sample's activations fit a 40 GB card; bf16
+# params; activation checkpointing. LoRA SFT cannot be exported, hence full fine-tune; the export (tools/convert_dcp_to_bf16.py)
+# becomes rl-v4's model.name.
+max_steps = 40
+output_dir = "/workspace/prl-runs"
+
+[run]
+name = "sft-deepseek"
+
+[deployment]
+type = "single_node"
+num_train_gpus = 8
+
+[model]
+name = "/workspace/models/Qwen3.5-9B"
+impl = "custom"
+optimization_dtype = "bfloat16"
+fused_lm_head_token_chunk_size = 2048
+cp = 4
+cp_style = "ulysses"
+ac_offloading = "None"
+
+[model.ac]
+
+[renderer]
+name = "qwen3.5"
+enable_thinking = true           # DeepSeek's reasoning_content trains the <think> block; tool calls follow it
+
+[data]
+type = "sft"
+name = "/workspace/sft-data/deepseek"
+subsets = ["default"]
+splits = ["train"]
+batch_size = 8
+micro_batch_size = 1
+seq_len = 131072
+
+[optim]
+lr = 1e-5
+weight_decay = 0.0
+
+[scheduler]
+type = "linear"
+warmup_steps = 4
+decay_steps = 0
+
+[ckpt]
+interval = 40
+keep_last = 1
+
+[monitors.file]
