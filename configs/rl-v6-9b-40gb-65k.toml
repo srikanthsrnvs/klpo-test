@@ -1,4 +1,4 @@
-# Run 6 (fallback for 40 GB cards without context parallelism): trainer cp=1 with activation offloading at 65k; the policy's
+# Fallback (not needed once the Ulysses patch is applied) (fallback for 40 GB cards without context parallelism): trainer cp=1 with activation offloading at 65k; the policy's
 # context window and vLLM match it, so pi compacts before a branch outgrows the trainer. 131k needs 80 GB cards at cp=1.
 # GPUs: 4 vLLM replicas + 4 trainer GPUs in one 4-way Ulysses CP group at 131k. (6/2 with cp = 2 OOMed on the first
 # optimizer step: 38 GB in use on a 40 GB card.) Rollouts are environment-bound, so inflight is what sets throughput: max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this

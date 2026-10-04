@@ -1,4 +1,4 @@
-# Run 6: 131k on 40 GB cards WITHOUT context parallelism (Ulysses crashes on Qwen3.5; ring is unsupported for it). Memory is
+# Fallback (not needed once the Ulysses patch is applied): 131k on 40 GB cards WITHOUT context parallelism (Ulysses crashes on Qwen3.5; ring is unsupported for it). Memory is
 # squeezed with activation offloading (one in flight), the frozen bf16 base streamed from pinned host RAM (fsdp_cpu_offload;
 # the LoRA optimizer stays on GPU), and 1k-token LM-head chunks. Validated with fake packed data at 131k; steps are slower
 # but rollouts dominate step time.

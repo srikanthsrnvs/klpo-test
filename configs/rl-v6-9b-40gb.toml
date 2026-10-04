@@ -1,5 +1,5 @@
-# Run 6: Run 5's tool surface with the trainer on 4-way RING context parallelism at 131k (Ulysses CP crashes on Qwen3.5 in
-# this prime-rl commit: an int32 cu_seqlens-like tensor reaches RMSNorm during checkpoint recompute; ring does not).
+# Run 6: Run 5's tool surface, trainer at 131k on 4-way ULYSSES context parallelism with the CP-context fix
+# (trainer/prime-rl-ulysses-cp.patch). Validated with fake packed data: 20.3 GiB peak per 40 GB card, ~15 s/step.
 # GPUs: 4 vLLM replicas + 4 trainer GPUs in one 4-way Ulysses CP group at 131k. (6/2 with cp = 2 OOMed on the first
 # optimizer step: 38 GB in use on a 40 GB card.) Rollouts are environment-bound, so inflight is what sets throughput: max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
 # step is judged and trained (max_off_policy_steps = 3 lets them be used). Every rollout costs ~150 pids (Chrome,
@@ -39,7 +39,7 @@ impl = "custom"
 optimization_dtype = "bfloat16"
 fused_lm_head_token_chunk_size = 2048
 cp = 4
-cp_style = "ring"                # ulysses crashes (int tensor in RMSNorm); ring validated with fake data at 131k
+cp_style = "ulysses"             # the int-tensor RMSNorm crash under Ulysses is fixed by the patch; offloading stays on (20 GiB peak)
 
 [trainer.model.ac]
 
