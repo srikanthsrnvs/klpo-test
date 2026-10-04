@@ -16,7 +16,7 @@ for i in $(seq 1 30); do
   pkill -9 -f "[p]rime_rl" 2>/dev/null || true
   pkill -9 -f "[v]llm" 2>/dev/null || true
   pkill -9 -f "VLLM::" 2>/dev/null || true
-  pkill -9 -f "PRL::" 2>/dev/null || true
+  sh /workspace/jev-browser-rl/scripts/ops/kill_prl.sh
   left=$(pgrep -fa "[p]rime_rl|[v]llm|[r]l @ /workspace" | wc -l)
   used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk "{s+=\$1} END {print s}")
   [ "$left" = "0" ] && [ "${used:-1}" -lt 1000 ] && break

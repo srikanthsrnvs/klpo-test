@@ -72,7 +72,8 @@ decay_steps = 0
 type = "custom"
 import_path = "klpo_prime.klpo_binary_loss"
 [trainer.loss.kwargs]
-beta = 0.1
+beta = 2.0                       # regression target per token = advantage / beta; keep it well under 1 nat
+omega_max = 10.0                 # binary-KL correction weight is clipped to [0.1, 10]
 
 # --- Orchestrator ---
 
@@ -110,7 +111,6 @@ env.taskset.tools.url = "http://127.0.0.1:18100/mcp"
 env.agent.harness.id = "jev-pi"
 env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls"]
 env.agent.runtime.type = "subprocess"
-env.agent.timeout.rollout = 1200
 
 [orchestrator.eval]
 interval = 10
@@ -124,7 +124,6 @@ env.taskset.tools.url = "http://127.0.0.1:18100/mcp"
 env.agent.harness.id = "jev-pi"
 env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls"]
 env.agent.runtime.type = "subprocess"
-env.agent.timeout.rollout = 1200
 
 # --- Inference ---
 # Port 8000 belongs to the Vast portal's caddy on this box.

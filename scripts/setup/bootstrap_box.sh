@@ -22,13 +22,21 @@ grep -q JEV_CHROME_BINARY /etc/environment || echo 'JEV_CHROME_BINARY=/usr/local
 echo "== prime-rl"; cd /workspace
 git config --global url."https://github.com/".insteadOf "git@github.com:"
 [ -d prime-rl ] || git clone -q https://github.com/PrimeIntellect-ai/prime-rl
-cd prime-rl && git submodule update --init --recursive -q 2>&1 | tail -1 || true
+# Pin the commit this repo's patch and loss were developed against (override with PRIME_RL_COMMIT).
+cd prime-rl && git fetch -q origin "${PRIME_RL_COMMIT:-4c7c0d5d188ef93d5fc782b41863870cf6dc0c99}" 2>/dev/null; git checkout -q "${PRIME_RL_COMMIT:-4c7c0d5d188ef93d5fc782b41863870cf6dc0c99}" 2>/dev/null || true
+git submodule update --init --recursive -q 2>&1 | tail -1 || true
 uv sync --all-extras > /workspace/prime-rl-install.log 2>&1 && echo "uv sync ok" || { tail -5 /workspace/prime-rl-install.log; exit 1; }
 echo "== patch + packages"; python3 /workspace/jev-browser-rl/trainer/patch_prime_rl.py /workspace/prime-rl
 cp /workspace/jev-browser-rl/trainer/klpo_prime.py /workspace/prime-rl/src/klpo_prime.py
 uv pip install -q -e /workspace/jev-browser-rl/harness -e /workspace/jev-browser-rl/env "cryptography>=42" websockets
 uv run --no-sync python /workspace/jev-browser-rl/trainer/smoke_prime.py 2>&1 | tail -2
 echo "== prime cli"; uv tool install -q prime 2>/dev/null || true
-echo "== model"; mkdir -p /workspace/models; [ -f /workspace/models/Qwen3.5-9B/config.json ] || uv run --no-sync hf download Qwen/Qwen3.5-9B --local-dir /workspace/models/Qwen3.5-9B > /workspace/dl-9b.log 2>&1
+echo "== model"; mkdir -p /workspace/models
+# Reuse a Hugging Face cache snapshot when the box already has one (Vast's vLLM template downloads it there).
+if [ ! -f /workspace/models/Qwen3.5-9B/config.json ]; then
+  SNAP=$(ls -d /workspace/models/models--Qwen--Qwen3.5-9B/snapshots/*/ 2>/dev/null | head -1)
+  if [ -n "$SNAP" ] && [ -f "$SNAP/config.json" ]; then ln -sfn "${SNAP%/}" /workspace/models/Qwen3.5-9B; fi
+fi
+[ -f /workspace/models/Qwen3.5-9B/config.json ] || uv run --no-sync hf download Qwen/Qwen3.5-9B --local-dir /workspace/models/Qwen3.5-9B > /workspace/dl-9b.log 2>&1
 du -sh /workspace/models/Qwen3.5-9B | cut -f1
 echo "== $(date) BOOTSTRAP DONE"

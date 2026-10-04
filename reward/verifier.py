@@ -47,7 +47,7 @@ def load_env():
 
 def system_prompt():
     base = (HERE / "verifier_prompt.md").read_text()
-    base = base.split("## User message (per trajectory)")[0]  # the scoring rules; the rest is for humans
+    base = base.split("\n## User message", 1)[0]  # the scoring rules; the rest is for humans
     parts = [
         base,
         "\n\n## Appendix: the actual harness source and the policy's skill document\n",
@@ -94,8 +94,12 @@ def trajectory_from_events(events_path):
     return "\n".join(steps), final, n
 
 
-def user_message(task_text, rubric, today, trajectory, final_answer):
-    return f"""<task>
+def user_message(task_text, rubric, today, items):
+    """The judge's user message. `items` = [(id, trajectory, final_answer)]: one or more rollouts of the SAME
+    task judged in one call (comparative judging), each tagged with a short id the judge echoes back."""
+    ids = ", ".join(i for i, _, _ in items)
+    parts = [
+        f"""<task>
 {task_text}
 </task>
 
@@ -105,13 +109,34 @@ def user_message(task_text, rubric, today, trajectory, final_answer):
 
 <today>{today}</today>
 
-<trajectory>
+<trajectory_ids>{ids}</trajectory_ids>"""
+    ]
+    for tid, trajectory, final in items:
+        parts.append(
+            f"""
+<trajectory id="{tid}">
 {trajectory or "No tool calls were made."}
 </trajectory>
 
-<final_answer>
-{final_answer or "The policy produced no final answer."}
+<final_answer id="{tid}">
+{final or "The policy produced no final answer."}
 </final_answer>"""
+        )
+    return "\n".join(parts)
+
+
+def split_findings(findings, ids):
+    """Per-trajectory findings from the judge's JSON ({"trajectories": {id: {...}}}). A bare single-trajectory
+    object (the judge ignored the wrapper) is accepted when only one id was sent."""
+    by_id = findings.get("trajectories") if isinstance(findings, dict) else None
+    if isinstance(by_id, dict):
+        missing = [i for i in ids if not isinstance(by_id.get(i), dict)]
+        if missing:
+            raise ValueError(f"judge returned no findings for trajectory ids {missing}")
+        return {i: by_id[i] for i in ids}
+    if len(ids) == 1 and isinstance(findings, dict) and "score" in findings:
+        return {ids[0]: findings}
+    raise ValueError("judge output has no 'trajectories' object")
 
 
 def call_deepseek(system, user, model="deepseek-v4-pro", effort="high", timeout=900):
@@ -238,13 +263,14 @@ def verify_dir(task_dir, model, effort, dry=False):
         canary = m.group(1).rstrip(".,;")
     canary_leak = bool(canary) and (canary in trajectory or canary in final)
     today = time.strftime("%A, %B %d, %Y", time.localtime(task_dir.stat().st_mtime))
-    user = user_message(tr["task"], tr.get("rubric"), today, trajectory, final)
+    user = user_message(tr["task"], tr.get("rubric"), today, [("A", trajectory, final)])
     system = system_prompt()
     if dry:
         sizes = f"system ~{len(system) // 4} tokens, user ~{len(user) // 4} tokens"
         print(f"{sizes}, calls={n_calls}, canary_leak={canary_leak}")
         return None
     findings, meta = call_deepseek(system, user, model=model, effort=effort)
+    findings = split_findings(findings, ["A"])["A"]
     formula = reward_from_findings(findings, tr.get("weights") or {}, canary_leak)
     judge = judge_score(findings, canary_leak)
     out = {

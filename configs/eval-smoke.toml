@@ -25,4 +25,3 @@ agent.harness.id = "jev-pi"
 agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "131072" }
 agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
 agent.runtime.type = "subprocess"
-agent.timeout.rollout = 540

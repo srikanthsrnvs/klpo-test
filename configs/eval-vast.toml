@@ -20,4 +20,3 @@ taskset.tools.url = "http://127.0.0.1:18100/mcp"   # scripts/run/serve_tools.py 
 taskset.task.minutes = 15
 agent.harness.id = "jev-pi"
 agent.runtime.type = "subprocess"
-agent.timeout.rollout = 1200

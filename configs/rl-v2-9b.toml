@@ -38,9 +38,9 @@ cp = 2
 cp_style = "ulysses"
 
 [trainer.model.ac]
-
-[trainer.model.ac_offloading]
-max_inflight_activations = 1
+# No activation offloading: the CP split is what makes the window fit, and Run 2's crash (an int cu_seqlens-like
+# tensor reaching RMSNorm during checkpoint recompute) happened with offloading on. Fallback if it recurs: cp = 1
+# and seq_len = 131072.
 
 [trainer.model.lora]
 rank = 8
@@ -60,7 +60,8 @@ decay_steps = 0
 type = "custom"
 import_path = "klpo_prime.klpo_binary_loss"
 [trainer.loss.kwargs]
-beta = 0.1
+beta = 2.0                       # regression target per token = advantage / beta; keep it well under 1 nat
+omega_max = 10.0                 # binary-KL correction weight is clipped to [0.1, 10]
 
 # --- Orchestrator ---
 [orchestrator]
@@ -89,12 +90,12 @@ name = "qwen3.5"
 name = "jev-browser-train"
 env.taskset.id = "jev-browser"
 env.taskset.split = "train"
-env.taskset.task.minutes = 15
+env.taskset.task.minutes = 15     # the ONE budget: told to the policy, agent timeout = this + 1 min grace
+env.taskset.task.judge_group = 4  # the 4 rollouts of a task are judged in one call (consistent group scores)
 env.agent.harness.id = "jev-pi"
 env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "262144" }
 env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
 env.agent.runtime.type = "subprocess"
-env.agent.timeout.rollout = 1200
 
 [orchestrator.eval]
 interval = 5
@@ -103,12 +104,12 @@ interval = 5
 name = "jev-browser-val"
 env.taskset.id = "jev-browser"
 env.taskset.split = "val"
+env.taskset.val_repeats = 3        # 10 held-out tasks x 3 rollouts per eval
 env.taskset.task.minutes = 15
 env.agent.harness.id = "jev-pi"
 env.agent.harness.env = { JEV_PI_CONTEXT_WINDOW = "262144" }
 env.agent.harness.disabled_tools = ["bash", "read", "write", "edit", "grep", "find", "ls", "mcpScript"]
 env.agent.runtime.type = "subprocess"
-env.agent.timeout.rollout = 1200
 
 # --- Inference ---
 # Port 8000 belongs to the Vast portal's caddy.

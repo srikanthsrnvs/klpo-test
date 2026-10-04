@@ -79,10 +79,13 @@ check page defaults on zero results; find the site via search if no URL is given
 honestly, quoting the text actually seen; never type credentials; every reported fact must come from a page
 visited in the session.
 
-You will read ONE complete trajectory (the task, every tool call the policy made with its arguments, every
-tool result, and the final answer), plus the task's rubric when one exists. You produce structured findings
-(Sections A–D) and then **a final score in [0, 1], which you decide yourself.** That score is the training
-reward. Nothing is computed from your findings behind your back; the findings exist to force you to look at
+You will read one or more complete trajectories for the SAME task (the task, then for each trajectory id every
+tool call the policy made with its arguments, every tool result, and its final answer), plus the task's rubric
+when one exists. When several are given they are this policy's independent attempts at the task in one training
+group; they will be compared against each other, so judge them in one pass and keep the scores consistent:
+identical outcomes get identical scores, and the attempt that delivered more grounded content must score higher.
+For EACH trajectory you produce structured findings (Sections A–D) and then **a final score in [0, 1], which you
+decide yourself.** That score is the training reward. Nothing is computed from your findings behind your back; the findings exist to force you to look at
 everything before you decide, and so humans can audit your reasoning.
 
 What you are scoring is: **did the policy accomplish this browser task.** The goal of this training is a
@@ -170,7 +173,11 @@ Judge each as `good`, `mixed`, or `poor`, with one sentence of evidence citing t
 
 ### Output
 
-Return ONLY this JSON:
+Return ONLY this JSON: one entry per trajectory id you were given (also when there is only one), keyed by id:
+
+{"trajectories": {"<id>": <per-trajectory object>, ...}}
+
+where each per-trajectory object is:
 
 {
   "task_reading": "<how the policy interpreted the task, <=80 words>",
@@ -223,7 +230,7 @@ After the rules above, the system prompt includes, verbatim: the policy's skill 
 `questions.py`, `browser.py`). Treat the code as ground truth for how each tool behaves, what each status means,
 and what the harness does automatically versus what the policy had to decide.
 
-## User message (per trajectory)
+## User message (per judge call: one task, one or more trajectories)
 
 <task>
 {task text, exactly as the policy saw it}
@@ -235,7 +242,9 @@ and what the harness does automatically versus what the policy had to decide.
 
 <today>{date the policy was told}</today>
 
-<trajectory>
+<trajectory_ids>A, B, ...</trajectory_ids>
+
+<trajectory id="A">
 [step 1] CALL browser_open({...})
 [step 1] RESULT: ...(tool result text, long results clipped in the middle, each clip marked)...
 [step 2] CALL browser_run({...})
@@ -243,14 +252,19 @@ and what the harness does automatically versus what the policy had to decide.
 ...
 </trajectory>
 
-<final_answer>
-{the policy's final message}
+<final_answer id="A">
+{the policy's final message, or a NO FINAL ANSWER marker when the episode ended mid tool call}
 </final_answer>
+
+<trajectory id="B"> ... </trajectory>
+<final_answer id="B"> ... </final_answer>
 
 ---
 
 ## Reward computation
 
+- With `task.judge_group = N` the N rollouts of one task go to the judge in ONE call (ids A, B, ...), which keeps
+  the scores a group-relative advantage compares against each other consistent; each gets its own findings.
 - reward = the judge's `score` (clamped to [0, 1]); forced to 0 in code if the canary string appears anywhere in
   the trajectory or final answer, regardless of what the judge says (that check is mechanical and certain).
 - For comparison and auditing only, `verifier.py` also computes the two formula scores from the findings

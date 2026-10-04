@@ -348,7 +348,14 @@ class Session:
                 text = " ".join(page["text"].split())
                 heading = "visible text:"
             if len(text) > text_chars:
-                text = text[:text_chars] + " …"
+                if full_text:
+                    more = (
+                        f"\n[truncated: showing {text_chars} of {len(text)} characters; "
+                        "browser_text(session, max_chars=N) reads more]"
+                    )
+                else:
+                    more = f"\n[visible text truncated at {text_chars} characters; browser_text reads the whole page]"
+                text = text[:text_chars] + more
             lines.append(heading)
             lines.append(text)
         return "\n".join(lines)
@@ -573,6 +580,9 @@ class Session:
             # A navigation happened. Give the new document time to render before anyone judges it.
             self.settle()
             self.note_page(action["label"])
+        elif action["kind"] in {"click", "fill", "select"} and self.page["fingerprint"] != page["fingerprint"]:
+            # Same URL, different page: an in-place update that the task record would otherwise never show.
+            self.note_page(action["label"], same_url=True)
         self.capture_evidence(f"{action['kind']}: {action['label'][:80]}" + (f" = {text!r}" if text else ""))
 
     def capture_evidence(self, what):
@@ -602,15 +612,23 @@ class Session:
         except Exception:
             pass
 
-    def note_page(self, via):
-        """Append the current page to the session's task record if it is a new URL."""
+    def note_page(self, via, same_url=False):
+        """Append the current page to the session's task record: a new URL always; a URL already recorded only
+        when its main text changed materially (a page that updated in place: SPA search results, tabs, filters).
+        `same_url` marks an in-place update, which must not move the previous-page text Back decisions use."""
         url = _short_url(self.page["url"])
-        self.prev_text = getattr(self, "cur_text", "")
-        self.cur_text = self.main_text()
-        if any(r["url"] == url for r in self.record):
+        text = self.main_text()
+        if not same_url:
+            self.prev_text = getattr(self, "cur_text", "")
+            self.cur_text = text
+        previous = [r for r in self.record if r["url"] == url]
+        if previous and not _changed_materially(previous[-1].get("text", previous[-1]["excerpt"]), text):
             return
-        excerpt = self.main_text()[:400]
-        self.record.append({"via": via[:60], "url": url, "title": self.page["title"][:80], "excerpt": excerpt})
+        if previous:
+            via = f"{via[:44]} (page updated)"
+        self.record.append(
+            {"via": via[:60], "url": url, "title": self.page["title"][:80], "excerpt": text[:400], "text": text[:6000]}
+        )
 
     def main_text(self):
         """Rendered text of the page's main content (whole document, not just the viewport), skipping chrome."""
@@ -985,6 +1003,15 @@ class Session:
         self.browser.close()
 
 
+def _changed_materially(old, new, threshold=0.6):
+    """True when two page texts share less than `threshold` of their words (Jaccard on word sets): a re-rendered
+    results list or a switched tab, not a dropdown that opened or a counter that ticked."""
+    a, b = set(old.lower().split()), set(new.lower().split())
+    if not a and not b:
+        return False
+    return len(a & b) / max(len(a | b), 1) < threshold
+
+
 def _short_url(url):
     from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -1019,8 +1046,9 @@ def _fmt_steps(steps):
 
 @server.tool()
 def browser_open(url: str) -> str:
-    """Open a new Chrome tab at url. Returns a session id, the element table, and the FULL text of the page (whole
-    document, so you can list every item without scrolling). Keep the session id; every other tool needs it."""
+    """Open a new Chrome tab at url. Returns a session id, the element table, and the first 8,000 characters of the
+    page's text (whole document, not just the viewport; a [truncated] line says when there is more, which
+    browser_text reads). Keep the session id; every other tool needs it."""
     global _counter
     with _SESSIONS_LOCK:
         _counter += 1
@@ -1182,9 +1210,12 @@ def browser_text(session: str, max_chars: int = 12000, links: bool = False) -> s
     except (StalePage, RuntimeError):
         text = s.page["text"]
     text = "\n".join(line.strip() for line in str(text).splitlines() if line.strip())
-    if len(text) > max_chars:
-        text = text[:max_chars] + " …"
-    out = f"url: {s.page['url']}\nfull page text ({len(text)} chars):\n{text}"
+    total = len(text)
+    if total > max_chars:
+        text = text[:max_chars] + (
+            f"\n[truncated: showing {max_chars} of {total} characters; call again with a larger max_chars for the rest]"
+        )
+    out = f"url: {s.page['url']}\nfull page text ({total} chars{', truncated' if total > max_chars else ''}):\n{text}"
     if links:
         out += "\n\n" + s.render_links(max_items=max(40, max_chars // 60))
     return out

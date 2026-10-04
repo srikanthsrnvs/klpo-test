@@ -7,7 +7,7 @@ while true; do
   sleep 120
   if ! pgrep -f "[r]l @ /workspace/jev-browser-rl" >/dev/null; then
     echo "$(date) rl not running; relaunching with --resume" 
-    pkill -9 -f "[p]rime_rl" 2>/dev/null; pkill -9 -f "[v]llm" 2>/dev/null; pkill -9 -f "VLLM::" 2>/dev/null; pkill -9 -f "PRL::" 2>/dev/null
+    pkill -9 -f "[p]rime_rl" 2>/dev/null; pkill -9 -f "[v]llm" 2>/dev/null; pkill -9 -f "VLLM::" 2>/dev/null; sh /workspace/jev-browser-rl/scripts/ops/kill_prl.sh
     for p in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
     sleep 10
     cd /workspace/prime-rl || exit 1
