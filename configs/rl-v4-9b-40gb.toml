@@ -1,4 +1,4 @@
-# Run 4: Qwen3.5-9B (SFT warm-started, see scripts/run/sft_warmstart.sh) on 8x A100-40GB.
+# Run 4: Qwen3.5-9B on 8x A100-40GB.
 # Throughput: 6 vLLM replicas (rollouts are environment-bound, so more replicas = more concurrent rollouts), 2 trainer
 # GPUs in one 2-way Ulysses CP group at 131k (fits a 40 GB card with checkpointing, no offloading; fallback 4/4 with
 # cp = 4 as in rl-v3). max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
@@ -16,7 +16,7 @@ output_dir = "/workspace/prl-runs"
 name = "jev9b-v4"
 
 [model]
-name = "/workspace/models/Qwen3.5-9B-sft"   # bf16 export of the SFT warm start; base model if you skip SFT
+name = "/workspace/models/Qwen3.5-9B"       # (optional: an SFT export from scripts/run/sft_warmstart.sh)
 
 [deployment]
 type = "single_node"
@@ -86,7 +86,7 @@ max_inflight = 96
 
 [orchestrator.renderer]
 name = "qwen3.5"
-enable_thinking = true           # the SFT export's path does not match the renderer's per-model table; say it explicitly
+enable_thinking = true
 
 [[orchestrator.train.source]]
 name = "jev-browser-train"
