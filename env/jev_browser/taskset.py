@@ -228,13 +228,13 @@ class BenchTask(vf.Task[BenchData, vf.State, BenchTaskConfig]):
         """[step n] CALL/RESULT lines, the final answer (the last assistant message WITHOUT tool calls), the last
         narration (any assistant text), the call count, and whether the episode ended mid tool call."""
         v = _verifier()
-        steps, final, narration, ids, n, mid_call = [], "", "", {}, 0, False
+        steps, final, narration, pending, n, mid_call = [], "", "", [], 0, False
         for m in self._messages(trace):
             if m.role == "assistant":
                 calls = list(m.tool_calls or [])
                 for tc in calls:
                     n += 1
-                    ids[tc.id] = n
+                    pending.append((tc.id, n))  # calls awaiting their result, in order
                     name = tc.name.rsplit("browser_", 1)
                     name = f"browser_{name[1]}" if len(name) == 2 else tc.name
                     steps.append(f"[step {n}] CALL {name}({tc.arguments})")
@@ -245,7 +245,10 @@ class BenchTask(vf.Task[BenchData, vf.State, BenchTaskConfig]):
                     if not calls:
                         final = text
             elif m.role == "tool":
-                k = ids.get(m.tool_call_id, n)
+                # Match a result to the earliest unanswered call with its id; tool-call ids from the sampled policy
+                # can repeat within a rollout, so a plain id lookup would attribute results to the wrong steps.
+                i = next((j for j, (cid, _) in enumerate(pending) if cid == m.tool_call_id), 0 if pending else None)
+                k = pending.pop(i)[1] if i is not None else n
                 steps.append(f"[step {k}] RESULT: {v.clip(_text(m.content), clip_limit)}")
         return "\n".join(steps), final, narration, n, mid_call
 
