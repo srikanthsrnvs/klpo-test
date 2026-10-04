@@ -1,7 +1,6 @@
 # Run 4: Qwen3.5-9B on 8x A100-40GB.
-# Throughput: 6 vLLM replicas (rollouts are environment-bound, so more replicas = more concurrent rollouts), 2 trainer
-# GPUs in one 2-way Ulysses CP group at 131k (fits a 40 GB card with checkpointing, no offloading; fallback 4/4 with
-# cp = 4 as in rl-v3). max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
+# GPUs: 4 vLLM replicas + 4 trainer GPUs in one 4-way Ulysses CP group at 131k. (6/2 with cp = 2 OOMed on the first
+# optimizer step: 38 GB in use on a 40 GB card.) Rollouts are environment-bound, so inflight is what sets throughput: max_inflight (96) is 1.5x the batch so the next step's rollouts are already running while this
 # step is judged and trained (max_off_policy_steps = 3 lets them be used). Every rollout costs ~150 pids (Chrome,
 # daemon, tool server, pi) and the box's cgroup allows ~31k including vLLM/trainer threads, so inflight stays <= 64. Signal: groups of 8 (more within-group
 # variance than 4), the difficulty-pool curriculum samples tasks the policy sometimes solves more often than tasks it
@@ -21,8 +20,8 @@ name = "/workspace/models/Qwen3.5-9B"       # (optional: an SFT export from scri
 
 [deployment]
 type = "single_node"
-num_infer_gpus = 6
-num_train_gpus = 2
+num_infer_gpus = 4
+num_train_gpus = 4
 
 [weight_broadcast]
 type = "filesystem"
@@ -38,7 +37,7 @@ keep_last = 2
 impl = "custom"
 optimization_dtype = "bfloat16"
 fused_lm_head_token_chunk_size = 2048
-cp = 2
+cp = 4
 cp_style = "ulysses"
 ac_offloading = "None"           # prime-rl offloads activations by default; Run 2 crashed inside that path
 
@@ -130,10 +129,10 @@ port = 8100
 base_url = "http://localhost:8100/v1"
 
 [inference.vllm]
-data_parallel_size = 6
+data_parallel_size = 4
 max_model_len = 131072
 gpu_memory_utilization = 0.90
-max_num_seqs = 8
+max_num_seqs = 16                # 4 replicas x 16 = 64 concurrent sequences = max_inflight; KV cache had 3x headroom at 8
 enable_lora = true
 max_lora_rank = 8
 enable_auto_tool_choice = true
